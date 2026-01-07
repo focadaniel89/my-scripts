@@ -94,13 +94,14 @@ REDIS_PASSWORD=""
 if run_sudo docker ps --format '{{.Names}}' | grep -q "^redis$"; then
     log_success "✓ Redis container detected"
     
-    # Load Redis credentials for n8n connection
-    if has_credentials "redis"; then
-        REDIS_PASSWORD=$(get_secret "redis" "REDIS_PASSWORD")
-        log_success "✓ Redis credentials loaded"
+    # Load Redis credentials for n8n connection (from redis-docker installation)
+    if has_credentials "redis-docker"; then
+        REDIS_PASSWORD=$(get_secret "redis-docker" "REDIS_PASSWORD")
+        log_success "✓ Redis credentials loaded from redis-docker"
     else
         log_error "Redis credentials not found!"
         log_info "Please ensure Redis container was installed with credentials"
+        log_info "Expected: ~/.vps-secrets/.env_redis-docker"
         exit 1
     fi
 else

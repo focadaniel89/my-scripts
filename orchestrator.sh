@@ -88,7 +88,7 @@ is_app_installed() {
             fi
             ;;
         redis)
-            # Check if Redis package is installed first
+            # Check if Redis native (host) is installed
             if command -v redis-server &>/dev/null || command -v redis-cli &>/dev/null; then
                 # Package exists, check if service is running
                 if systemctl is-active --quiet redis-server 2>/dev/null || systemctl is-active --quiet redis 2>/dev/null; then
@@ -106,6 +106,24 @@ is_app_installed() {
                 fi
             else
                 # Redis not installed
+                return 1
+            fi
+            ;;
+        redis-docker)
+            # Check if Redis container exists and is running
+            if command -v docker &>/dev/null && systemctl is-active --quiet docker 2>/dev/null; then
+                if run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^redis$"; then
+                    return 0
+                elif run_sudo docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^redis$"; then
+                    # Container exists but stopped - try to start
+                    run_sudo docker start redis &>/dev/null || true
+                    sleep 2
+                    run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^redis$" && return 0
+                    return 1
+                else
+                    return 1
+                fi
+            else
                 return 1
             fi
             ;;

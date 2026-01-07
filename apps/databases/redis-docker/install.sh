@@ -14,10 +14,9 @@ source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/docker.sh"
 source "${SCRIPT_DIR}/lib/preflight.sh"
 
-APP_NAME="redis"
+APP_NAME="redis-docker"
 CONTAINER_NAME="redis"
 DATA_DIR="/opt/databases/redis"
-NETWORK="vps_network"
 
 # Cleanup on error
 INSTALL_FAILED=false
@@ -197,7 +196,7 @@ echo ""
 log_info "Connection Details:"
 echo "  From containers: Applications must connect Redis to their networks"
 echo "  From localhost: redis://127.0.0.1:6379"
-echo "  Password: Stored in ~/.vps-secrets/.env_redis"
+echo "  Password: Stored in ~/.vps-secrets/.env_redis-docker"
 echo ""
 
 log_info "How Applications Connect:"
@@ -210,7 +209,8 @@ echo "  View logs:    docker logs $CONTAINER_NAME -f"
 echo "  Restart:      docker restart $CONTAINER_NAME"
 echo "  Stop:         docker stop $CONTAINER_NAME"
 echo "  Start:        docker start $CONTAINER_NAME"
-echo "  CLI access:   docker exec -it $CONTAINER_NAME redis-cli -a \$REDIS_PASSWORD"
+echo "  Get password: cat ~/.vps-secrets/.env_redis-docker"
+echo "  CLI access:   docker exec -it $CONTAINER_NAME redis-cli -a \$(grep REDIS_PASSWORD ~/.vps-secrets/.env_redis-docker | cut -d= -f2)"
 echo "  Remove:       cd $DATA_DIR && docker-compose down -v"
 echo ""
 
