@@ -890,10 +890,10 @@ echo "  Production-ready persistent storage"
 echo ""
 
 log_info "⚡ Redis Cache & Queue:"
-echo "  Host: $REDIS_HOST (vps_network gateway)"
+echo "  Host: redis (redis-docker container)"
 echo "  Port: 6379"
 echo "  Mode: Queue (production-ready)"
-echo "  Connected to host Redis via Docker network"
+echo "  Connected via n8n_network"
 echo ""
 
 log_info "Security & SSL:"
@@ -964,4 +964,6 @@ echo "  • Workflow templates: https://n8n.io/workflows"
 echo "  • Community: https://community.n8n.io"
 echo ""
 
+# Exit successfully
+exit 0
 
