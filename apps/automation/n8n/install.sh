@@ -319,8 +319,9 @@ log_success "vps_network found"
 
 # Set Redis host (container name for Docker DNS resolution)
 REDIS_HOST="redis"
-log_info "Redis connection: redis://redis:6379 (via vps_network)"
+log_info "Redis connection: redis://redis:6379 (via docker network)"
 log_success "✓ Redis host configured"
+
 echo ""
 
 # Final validation of ALL critical n8n environment variables
@@ -434,10 +435,10 @@ if ! deploy_with_compose "$DATA_DIR"; then
 fi
 echo ""
 
-# Connect Redis to n8n_network for communication
-log_step "Step 9: Connecting services to n8n network"
+# Wait for container to be ready
+log_step "Step 9: Connecting standalone services to n8n network"
 
-# Connect Redis
+# Connect Redis to n8n_network (redis-docker runs standalone)
 if run_sudo docker ps --format '{{.Names}}' | grep -q "^redis$"; then
     if run_sudo docker network inspect n8n_network --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' 2>/dev/null | grep -q "^redis$"; then
         log_info "✓ Redis already connected to n8n_network"
@@ -450,7 +451,7 @@ else
     log_warn "Redis container not found - queue mode may not work"
 fi
 
-# Connect Ollama (if exists)
+# Connect Ollama to n8n_network if it exists (installed by orchestrator as optional dependency)
 if run_sudo docker ps --format '{{.Names}}' | grep -q "^ollama$"; then
     if run_sudo docker network inspect n8n_network --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' 2>/dev/null | grep -q "^ollama$"; then
         log_info "✓ Ollama already connected to n8n_network"
@@ -740,7 +741,7 @@ fi
 echo ""
 
 # Update Nginx configuration with SSL after certificate is created
-log_step "Step 13: Updating Nginx configuration with SSL"
+log_step "Step 12: Updating Nginx configuration with SSL"
 log_info "Adding SSL configuration to nginx..."
 
 # Verify certificate exists before updating nginx config
@@ -900,27 +901,17 @@ echo "  Production-ready persistent storage"
 echo ""
 
 log_info "⚡ Redis Cache & Queue:"
-echo "  Host: $REDIS_HOST (Redis container)"
+echo "  Host: $REDIS_HOST (vps_network gateway)"
 echo "  Port: 6379"
-echo "  Mode: $EXECUTION_MODE"
-echo "  Connection: via n8n_network (dynamically connected)"
+echo "  Mode: Queue (production-ready)"
+echo "  Connected to host Redis via Docker network"
 echo ""
-
-# Display Ollama status if it was installed or detected
-if run_sudo docker ps --format '{{.Names}}' | grep -q "^ollama$"; then
-    log_info "AI Integration - Ollama:"
-    echo "  Status: Installed and connected"
-    echo "  Access: http://ollama:11434 (from n8n workflows)"
-    echo "  Models: docker exec ollama ollama list"
-    echo "  Pull model: docker exec ollama ollama pull mistral"
-    echo "  Use in n8n: Add 'Ollama' node to workflows"
-    echo ""
-fi
 
 log_info "Security & SSL:"
 echo "  Domain: $N8N_DOMAIN"
 echo "  Email: $N8N_EMAIL"
 echo "  Auto-renewal: Enabled (certbot timer)"
+echo "  Basic Auth: Enabled"
 echo "  Data Encryption: Active"
 echo ""
 
