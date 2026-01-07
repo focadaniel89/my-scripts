@@ -63,13 +63,8 @@ create_app_directory "$DATA_DIR/models"
 log_success "Ollama directories created"
 echo ""
 
-# Create Docker network
-log_step "Step 3: Creating Docker network"
-create_docker_network "$NETWORK"
-echo ""
-
 # Create Docker Compose file
-log_step "Step 4: Creating Docker Compose configuration"
+log_step "Step 3: Creating Docker Compose configuration"
 
 run_sudo tee "$DATA_DIR/docker-compose.yml" > /dev/null << 'EOF'
 version: '3.8'
@@ -92,32 +87,42 @@ services:
     volumes:
       - /opt/ai/ollama/models:/root/.ollama/models
       
-    networks:
-      - vps_network
-      
     healthcheck:
       test: ["CMD-SHELL", "ollama list || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-
-networks:
-  vps_network:
-    external: true
 EOF
 
 log_success "Docker Compose configuration created"
 echo ""
 
 # Deploy container
-log_step "Step 5: Deploying Ollama container"
+log_step "Step 4: Deploying Ollama container"
 if ! deploy_with_compose "$DATA_DIR"; then
     log_error "Failed to deploy Ollama"
     exit 1
 fi
 echo ""
-
+# Search for and connect to n8n_network
+log_step "Step 5: Connecting to n8n network"
+if run_sudo docker network inspect n8n_network &>/dev/null 2>&1; then
+    # Check if already connected
+    if run_sudo docker network inspect n8n_network --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' 2>/dev/null | grep -q "^ollama$"; then
+        log_info "Ollama already connected to n8n_network"
+    else
+        log_info "Connecting Ollama to n8n_network..."
+        run_sudo docker network connect n8n_network ollama
+        log_success "✓ Ollama connected to n8n_network"
+    fi
+    log_info "Ollama accessible at: http://ollama:11434 (from n8n)"
+else
+    log_warn "n8n_network not found - Ollama running standalone"
+    log_info "Install n8n first to enable integration"
+    log_info "After n8n installation, run: docker network connect n8n_network ollama"
+fi
+echo ""
 # Wait for container to be ready
 log_step "Step 6: Waiting for Ollama to be ready"
 RETRIES=30
@@ -152,7 +157,7 @@ echo ""
 log_success "═══════════════════════════════════════════"
 log_success "  Ollama Installation Complete!"
 log_success "═══════════════════════════════════════════"
-audit_log "INSTALL_COMPLETE" "$APP_NAME" "Network: $NETWORK (internal only)"
+audit_log "INSTALL_COMPLETE" "$APP_NAME" "Standalone container, connected to n8n_network if available"
 echo ""
 
 log_info "Default Model:"
@@ -160,8 +165,8 @@ echo "  gemma3: Downloaded and ready to use"
 echo ""
 
 log_info "Access Information:"
-echo "  Internal URL: http://ollama:11434 (from containers)"
-echo "  Network: $NETWORK"
+echo "  From n8n: http://ollama:11434 (via n8n_network)"
+echo "  Container: Standalone, connects to application networks on demand"
 echo "  Not accessible from internet (security by design)"
 echo ""
 
@@ -238,14 +243,14 @@ echo ""
 
 log_info "Security Notes:"
 echo "  No external ports exposed"
-echo "  Access only via Docker network ($NETWORK)"
-echo "  Containers on same network can connect"
+echo "  Access only via application networks (n8n_network)"
+echo "  Containers connect Ollama to their networks dynamically"
 echo "  Not accessible from internet"
 echo ""
 
 log_info "Containers with Access:"
-echo "  - n8n (if installed)"
-echo "  - Any container on $NETWORK"
+echo "  - n8n (connected via n8n_network)"
+echo "  - Any application that connects Ollama to its network"
 echo ""
 
 log_info "Documentation:"

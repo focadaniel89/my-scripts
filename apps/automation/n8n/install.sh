@@ -89,37 +89,23 @@ fi
 ensure_service_running nginx "Nginx"
 log_success "✓ Nginx is available"
 
-# Redis check (REQUIRED for queue and cache)
-REDIS_SERVICE=""
+# Redis check (REQUIRED for queue mode)
 REDIS_PASSWORD=""
-if command -v redis-server &>/dev/null || command -v redis-cli &>/dev/null; then
-    # Detect Redis service name - use systemctl status instead of list-unit-files
-    if systemctl status redis-server &>/dev/null || systemctl is-enabled redis-server &>/dev/null 2>&1; then
-        REDIS_SERVICE="redis-server"
-    elif systemctl status redis &>/dev/null || systemctl is-enabled redis &>/dev/null 2>&1; then
-        REDIS_SERVICE="redis"
-    fi
+if run_sudo docker ps --format '{{.Names}}' | grep -q "^redis$"; then
+    log_success "✓ Redis container detected"
     
-    if [ -n "$REDIS_SERVICE" ]; then
-        # Ensure Redis is running
-        ensure_service_running "$REDIS_SERVICE" "Redis"
-        log_success "✓ Redis is available (queue and cache)"
-        
-        # Load Redis credentials for n8n connection
-        if has_credentials "redis"; then
-            REDIS_PASSWORD=$(get_secret "redis" "REDIS_PASSWORD")
-            log_success "✓ Redis credentials loaded"
-        else
-            log_warn "Redis credentials not found, using empty password"
-            REDIS_PASSWORD=""
-        fi
+    # Load Redis credentials for n8n connection
+    if has_credentials "redis"; then
+        REDIS_PASSWORD=$(get_secret "redis" "REDIS_PASSWORD")
+        log_success "✓ Redis credentials loaded"
     else
-        log_error "Redis service not found"
+        log_error "Redis credentials not found!"
+        log_info "Please ensure Redis container was installed with credentials"
         exit 1
     fi
 else
-    log_error "Redis is not installed"
-    log_info "Please run orchestrator or install Redis first"
+    log_error "Redis container is not running"
+    log_info "Please install Redis first: ./apps/databases/redis-docker/install.sh"
     exit 1
 fi
 
@@ -330,87 +316,11 @@ if ! run_sudo docker network inspect vps_network &>/dev/null 2>&1; then
 fi
 log_success "vps_network found"
 
-# Configure Redis to bind to n8n_network gateway
-log_info "Configuring Redis to accept connections from n8n_network..."
-N8N_GATEWAY="172.19.0.1"
-REDIS_CONF="/etc/redis/redis.conf"
-
-if run_sudo test -f "$REDIS_CONF"; then
-    # Read active bind line (exclude commented lines, including our marker comments)
-    # Look for bind line that's NOT commented and comes AFTER our marker
-    CURRENT_BIND=$(run_sudo grep "^bind " "$REDIS_CONF" | head -1)
-    
-    if [ -z "$CURRENT_BIND" ]; then
-        log_error "No active bind configuration found in Redis!"
-        log_error "Please run Redis installer first: ./apps/databases/redis/install.sh"
-        exit 1
-    fi
-    
-    log_info "Current Redis bind configuration:"
-    log_info "  $CURRENT_BIND"
-    
-    # Check if n8n_network gateway already in bind list
-    if echo "$CURRENT_BIND" | grep -q "$N8N_GATEWAY"; then
-        log_success "✓ Redis already configured for n8n_network ($N8N_GATEWAY)"
-    else
-        log_info "Adding n8n_network gateway ($N8N_GATEWAY) to Redis bind..."
-        
-        # Extract current IPs from bind line and append n8n gateway
-        CURRENT_IPS=$(echo "$CURRENT_BIND" | sed 's/^bind //')
-        NEW_BIND="bind $CURRENT_IPS $N8N_GATEWAY"
-        
-        log_info "New bind configuration will be:"
-        log_info "  $NEW_BIND"
-        
-        # Find and replace the FIRST active (non-commented) bind line
-        # This will update the line added by Redis installer (after the commented original)
-        run_sudo sed -i "0,/^bind /{s|^bind .*|$NEW_BIND|}" "$REDIS_CONF"
-        
-        log_info "Restarting Redis to apply new configuration..."
-        run_sudo systemctl restart redis-server 2>/dev/null || run_sudo systemctl restart redis 2>/dev/null
-        sleep 2
-        
-        if systemctl is-active --quiet redis-server 2>/dev/null || systemctl is-active --quiet redis 2>/dev/null; then
-            log_success "✓ Redis reconfigured and restarted successfully"
-            log_success "✓ Redis now listens on: $CURRENT_IPS $N8N_GATEWAY"
-        else
-            log_error "Failed to restart Redis after configuration change"
-            log_error "Check Redis logs: journalctl -u redis-server -n 50"
-            exit 1
-        fi
-    fi
-else
-    log_warn "Redis configuration file not found at $REDIS_CONF"
-    log_warn "Redis bind configuration may need manual adjustment"
-fi
-
+# Set Redis host (container name for Docker DNS resolution)
+REDIS_HOST="redis"
+log_info "Redis connection: redis://redis:6379 (via vps_network)"
+log_success "✓ Redis host configured"
 echo ""
-
-# Detect Redis gateway from n8n_network (NOT vps_network)
-REDIS_HOST=""
-if [ -n "$REDIS_SERVICE" ]; then
-    log_info "Detecting n8n_network gateway for Redis connection..."
-    REDIS_HOST=$(run_sudo docker network inspect n8n_network --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null | head -1)
-    if [ -n "$REDIS_HOST" ]; then
-        log_success "✓ Redis accessible via n8n_network gateway: $REDIS_HOST"
-    else
-        log_warn "Could not detect n8n_network gateway, using docker0"
-        REDIS_HOST="172.17.0.1"
-    fi
-    echo ""
-else
-    # Fallback: Redis service not detected but we still need a host
-    log_warn "Redis service not active, using default docker0 gateway"
-    REDIS_HOST="172.17.0.1"
-fi
-
-# Final validation: ensure REDIS_HOST is never empty
-if [ -z "$REDIS_HOST" ]; then
-    log_error "Failed to determine Redis host address"
-    log_error "This should not happen - please report this bug"
-    REDIS_HOST="172.17.0.1"  # Ultimate fallback
-    log_warn "Using ultimate fallback: $REDIS_HOST"
-fi
 
 # Final validation of ALL critical n8n environment variables
 log_info "Validating all n8n environment variables..."
@@ -523,8 +433,38 @@ if ! deploy_with_compose "$DATA_DIR"; then
 fi
 echo ""
 
+# Connect Redis to n8n_network for communication
+log_step "Step 9: Connecting services to n8n network"
+
+# Connect Redis
+if run_sudo docker ps --format '{{.Names}}' | grep -q "^redis$"; then
+    if run_sudo docker network inspect n8n_network --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' 2>/dev/null | grep -q "^redis$"; then
+        log_info "✓ Redis already connected to n8n_network"
+    else
+        log_info "Connecting Redis container to n8n_network..."
+        run_sudo docker network connect n8n_network redis
+        log_success "✓ Redis connected to n8n_network"
+    fi
+else
+    log_warn "Redis container not found - queue mode may not work"
+fi
+
+# Connect Ollama (if exists)
+if run_sudo docker ps --format '{{.Names}}' | grep -q "^ollama$"; then
+    if run_sudo docker network inspect n8n_network --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' 2>/dev/null | grep -q "^ollama$"; then
+        log_info "✓ Ollama already connected to n8n_network"
+    else
+        log_info "Connecting Ollama container to n8n_network..."
+        run_sudo docker network connect n8n_network ollama
+        log_success "✓ Ollama connected to n8n_network"
+    fi
+else
+    log_info "Ollama not found (install later if needed)"
+fi
+echo ""
+
 # Wait for container to be ready
-log_step "Step 9: Waiting for n8n to be ready"
+log_step "Step 10: Waiting for n8n to be ready"
 RETRIES=60
 COUNT=0
 while [ $COUNT -lt $RETRIES ]; do
@@ -543,7 +483,7 @@ done
 echo ""
 
 # Configure Nginx reverse proxy
-log_step "Step 10: Configuring Nginx reverse proxy"
+log_step "Step 11: Configuring Nginx reverse proxy"
 
 cat << 'EOF_NGINX' | run_sudo tee "/etc/nginx/sites-available/$APP_NAME.conf" > /dev/null
 # n8n Workflow Automation - Nginx Configuration
@@ -641,7 +581,7 @@ fi
 echo ""
 
 # Request SSL certificate
-log_step "Step 11: Requesting SSL certificate"
+log_step "Step 12: Requesting SSL certificate"
 echo ""
 
 # Check if certificate already exists
@@ -799,7 +739,7 @@ fi
 echo ""
 
 # Update Nginx configuration with SSL after certificate is created
-log_step "Step 12: Updating Nginx configuration with SSL"
+log_step "Step 13: Updating Nginx configuration with SSL"
 log_info "Adding SSL configuration to nginx..."
 
 # Verify certificate exists before updating nginx config
@@ -959,17 +899,16 @@ echo "  Production-ready persistent storage"
 echo ""
 
 log_info "⚡ Redis Cache & Queue:"
-echo "  Host: $REDIS_HOST (vps_network gateway)"
+echo "  Host: $REDIS_HOST (Redis container)"
 echo "  Port: 6379"
-echo "  Mode: Queue (production-ready)"
-echo "  Connected to host Redis via Docker network"
+echo "  Mode: $EXECUTION_MODE"
+echo "  Connection: via n8n_network (dynamically connected)"
 echo ""
 
 log_info "Security & SSL:"
 echo "  Domain: $N8N_DOMAIN"
 echo "  Email: $N8N_EMAIL"
 echo "  Auto-renewal: Enabled (certbot timer)"
-echo "  Basic Auth: Enabled"
 echo "  Data Encryption: Active"
 echo ""
 
