@@ -1,0 +1,33 @@
+version: '3.9'
+
+services:
+  {{APP_NAME}}:
+    image: {{DOCKER_IMAGE}}
+    container_name: {{CONTAINER_NAME}}
+    restart: unless-stopped
+    environment:
+      {{ENVIRONMENT_VARS}}
+    volumes:
+      {{VOLUMES}}
+    networks:
+      - vps_network
+    ports:
+      - "{{HOST_PORT}}:{{CONTAINER_PORT}}"
+    healthcheck:
+      test: {{HEALTH_CHECK_CMD}}
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  vps_network:
+    external: true
+
+volumes:
+  {{APP_NAME}}_data:
+    driver: local
