@@ -390,18 +390,6 @@ if [ "$choice" -ge 1 ] && [ "$choice" -lt "$counter" ]; then
     fi
     echo ""
     
-    # Check for optional dependencies (recommended enhancements)
-    log_step "Checking optional enhancements..."
-    app_opt_deps=$(get_app_config "$app" "optional_dependencies" 2>/dev/null || echo "")
-    
-    if [ -n "$app_opt_deps" ]; then
-        log_info "Optional enhancements available: $app_opt_deps"
-        install_optional_dependencies "$app"
-    else
-        log_info "No optional enhancements for: $app"
-    fi
-    echo ""
-    
     # Run app installer with manual confirmation
     script_path="${SCRIPT_DIR}/apps/${category}/${app}/install.sh"
     
@@ -437,6 +425,19 @@ if [ "$choice" -ge 1 ] && [ "$choice" -lt "$counter" ]; then
         if confirm_action "Did '$app' install successfully?"; then
             log_success "Installation confirmed by user: $app"
             echo ""
+            
+            # Check for optional dependencies AFTER main app installation
+            log_step "Checking optional enhancements..."
+            app_opt_deps=$(get_app_config "$app" "optional_dependencies" 2>/dev/null || echo "")
+            
+            if [ -n "$app_opt_deps" ]; then
+                log_info "Optional enhancements available: $app_opt_deps"
+                install_optional_dependencies "$app"
+            else
+                log_info "No optional enhancements for: $app"
+            fi
+            echo ""
+            
             log_success "═══════════════════════════════════════════"
             log_success "  Installation Complete: $app"
             log_success "═══════════════════════════════════════════"
