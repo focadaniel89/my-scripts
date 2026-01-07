@@ -308,8 +308,8 @@ if run_sudo docker network inspect n8n_network &>/dev/null; then
 else
     log_info "Creating network with subnet 172.19.0.0/16..."
     
-    # Create network with explicit error handling
-    CREATE_OUTPUT=$(run_sudo docker network create n8n_network --subnet=172.19.0.0/16 --gateway=172.19.0.1 2>&1)
+    # Create network with explicit error handling and timeout
+    CREATE_OUTPUT=$(timeout 10 run_sudo docker network create n8n_network --subnet=172.19.0.0/16 --gateway=172.19.0.1 2>&1)
     CREATE_EXIT_CODE=$?
     
     if [ $CREATE_EXIT_CODE -eq 0 ]; then
@@ -317,11 +317,14 @@ else
         N8N_NETWORK_CREATED=true
     else
         log_error "Failed to create n8n_network (exit code: $CREATE_EXIT_CODE)"
-        log_error "Output: $CREATE_OUTPUT"
-        log_info ""
-        log_info "Checking existing networks and subnets:"
+        echo "Error output: $CREATE_OUTPUT"
+        echo ""
+        log_info "Existing Docker networks:"
         run_sudo docker network ls
-        exit 1
+        echo ""
+        log_info "Checking for subnet conflicts:"
+        run_sudo docker network inspect vps_network 2>/dev/null | grep -A 5 "IPAM" || true
+        return 1  # Trigger trap ERR instead of exit
     fi
 fi
 
