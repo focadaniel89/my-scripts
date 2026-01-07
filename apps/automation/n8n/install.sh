@@ -299,22 +299,11 @@ echo ""
 
 # Create Docker network
 log_step "Step 6: Creating n8n network"
-log_info "Creating n8n_network for n8n stack isolation..."
-N8N_NETWORK_CREATED=false
-if ! run_sudo docker network inspect n8n_network &>/dev/null 2>&1; then
-    log_info "Attempting to create network with subnet 172.19.0.0/16..."
-    if run_sudo docker network create n8n_network --subnet=172.19.0.0/16 --gateway=172.19.0.1; then
-        log_success "n8n_network created (172.19.0.0/16)"
-        N8N_NETWORK_CREATED=true
-    else
-        log_error "Failed to create n8n_network!"
-        log_info "Checking existing networks:"
-        run_sudo docker network ls
-        exit 1
-    fi
-else
-    log_info "n8n_network already exists"
+if ! create_docker_network "n8n_network"; then
+    log_error "Failed to create n8n_network"
+    exit 1
 fi
+N8N_NETWORK_CREATED=true
 
 # Verify vps_network exists (for postgres access)
 if ! run_sudo docker network inspect vps_network &>/dev/null 2>&1; then

@@ -69,6 +69,84 @@ check_docker_compose() {
     fi
 }
 
+# Find available subnet in Docker's private range (172.16-31.0.0/16)
+# Returns: Available subnet and gateway in format "SUBNET:GATEWAY"
+# Example output: "172.20.0.0/16:172.20.0.1"
+find_available_subnet() {
+    log_info "Finding available subnet..."
+    
+    # Get all existing subnets
+    local existing_subnets=$(run_sudo docker network inspect $(run_sudo docker network ls -q) 2>/dev/null | grep '"Subnet"' | awk -F'"' '{print $4}' | sort -u)
+    
+    # Try subnet ranges from 172.16.0.0/16 to 172.31.0.0/16 (Docker private range)
+    for i in {16..31}; do
+        local test_subnet="172.$i.0.0/16"
+        local test_prefix="172.$i"
+        
+        # Check if this subnet overlaps with any existing subnet
+        local overlaps=false
+        while IFS= read -r existing; do
+            [ -z "$existing" ] && continue
+            
+            # Extract first 2 octets from existing subnet
+            local existing_prefix=$(echo "$existing" | cut -d. -f1-2)
+            
+            if [ "$existing_prefix" = "$test_prefix" ]; then
+                overlaps=true
+                break
+            fi
+        done <<< "$existing_subnets"
+        
+        if [ "$overlaps" = "false" ]; then
+            local gateway="172.$i.0.1"
+            echo "$test_subnet:$gateway"
+            return 0
+        fi
+    done
+    
+    # No available subnet found
+    log_error "No available subnets in Docker's private range (172.16-31.0.0/16)"
+    log_info "Existing subnets:"
+    echo "$existing_subnets" | while read -r subnet; do
+        [ -n "$subnet" ] && log_info "  - $subnet"
+    done
+    return 1
+}
+
+# Create Docker network with automatic subnet detection
+# Args: $1 = network_name
+create_docker_network() {
+    local network_name=$1
+    
+    if ! run_sudo docker network inspect "$network_name" &> /dev/null; then
+        log_info "Creating Docker network: $network_name"
+        
+        # Find available subnet
+        local subnet_info=$(find_available_subnet)
+        if [ $? -ne 0 ]; then
+            log_error "Failed to find available subnet"
+            return 1
+        fi
+        
+        local subnet=$(echo "$subnet_info" | cut -d: -f1)
+        local gateway=$(echo "$subnet_info" | cut -d: -f2)
+        
+        log_success "Found available subnet: $subnet"
+        log_info "Creating network with gateway: $gateway"
+        
+        if run_sudo docker network create "$network_name" --subnet="$subnet" --gateway="$gateway"; then
+            log_success "Network created: $network_name ($subnet)"
+            return 0
+        else
+            log_error "Failed to create network: $network_name"
+            return 1
+        fi
+    else
+        log_info "Docker network already exists: $network_name"
+        return 0
+    fi
+}
+
 # Create Docker network if it doesn't exist
 # Args: $1 = network_name
 create_docker_network() {

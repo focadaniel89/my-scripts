@@ -172,14 +172,9 @@ fi
 
 # Create vps_network for shared services (databases, monitoring)
 log_step "Step 8: Creating vps_network for shared services"
-if ! run_sudo docker network inspect vps_network &>/dev/null 2>&1; then
-    log_info "Creating vps_network (172.18.0.0/16)..."
-    run_sudo docker network create vps_network --subnet=172.18.0.0/16 --gateway=172.18.0.1 2>/dev/null
-    log_success "vps_network created successfully"
-    log_info "  Subnet:  172.18.0.0/16"
-    log_info "  Gateway: 172.18.0.1"
-else
-    log_info "vps_network already exists"
+if ! create_docker_network "vps_network"; then
+    log_error "Failed to create vps_network"
+    exit 1
 fi
 echo ""
 
