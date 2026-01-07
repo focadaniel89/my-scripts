@@ -77,11 +77,11 @@ save_secret() {
     
     # Check if variable already exists in file
     if [ -f "$env_file" ] && grep -q "^${var_name}=" "$env_file"; then
-        # Update existing variable
-        sed -i "s|^${var_name}=.*|${var_name}='${value}'|" "$env_file"
+        # Update existing variable (no quotes for cleaner debugging)
+        sed -i "s|^${var_name}=.*|${var_name}=${value}|" "$env_file"
     else
-        # Append new variable
-        echo "${var_name}='${value}'" >> "$env_file"
+        # Append new variable (no quotes for cleaner debugging)
+        echo "${var_name}=${value}" >> "$env_file"
     fi
     
     chmod 600 "$env_file"

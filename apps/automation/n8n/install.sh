@@ -197,32 +197,31 @@ save_secret "$APP_NAME" "N8N_DOMAIN" "$N8N_DOMAIN"
 save_secret "$APP_NAME" "N8N_EMAIL" "$N8N_EMAIL"
 echo ""
 
-# Generate credentials
-log_step "Step 3: Generating secure credentials"
+# Generate encryption key
+log_step "Step 3: Generating encryption key"
 
-# Check if authentication credentials exist (not just domain/email)
-N8N_USER=$(get_secret "$APP_NAME" "N8N_USER" 2>/dev/null || echo "")
-N8N_PASSWORD=$(get_secret "$APP_NAME" "N8N_PASSWORD" 2>/dev/null || echo "")
+# Check if encryption key exists
 N8N_ENCRYPTION_KEY=$(get_secret "$APP_NAME" "N8N_ENCRYPTION_KEY" 2>/dev/null || echo "")
 
-if [ -z "$N8N_USER" ] || [ -z "$N8N_PASSWORD" ] || [ -z "$N8N_ENCRYPTION_KEY" ]; then
-    log_info "Generating authentication credentials..."
-    N8N_USER="admin@n8n.local"
-    N8N_PASSWORD=$(generate_secure_password)
+if [ -z "$N8N_ENCRYPTION_KEY" ]; then
+    log_info "Generating encryption key for secure data storage..."
     N8N_ENCRYPTION_KEY=$(openssl rand -hex 32)
-    
-    save_secret "$APP_NAME" "N8N_USER" "$N8N_USER"
-    save_secret "$APP_NAME" "N8N_PASSWORD" "$N8N_PASSWORD"
     save_secret "$APP_NAME" "N8N_ENCRYPTION_KEY" "$N8N_ENCRYPTION_KEY"
-    
-    log_success "Credentials generated securely"
+    log_success "Encryption key generated"
 else
-    log_info "Using existing credentials"
+    log_info "Using existing encryption key"
 fi
+
+log_info "User account will be created on first web access"
+echo ""
+
+# Set execution mode (regular mode - works reliably without Redis connection issues)
+EXECUTION_MODE="regular"
+log_info "Using regular execution mode (workflows run in main process)"
 echo ""
 
 # Create PostgreSQL database and user for n8n
-log_step "Step 4: Creating PostgreSQL database and user"
+log_step "Step 5: Creating PostgreSQL database and user"
 
 # Load PostgreSQL superuser credentials (for authentication to CREATE resources)
 log_info "Loading PostgreSQL superuser credentials..."
@@ -416,8 +415,6 @@ fi
 # Final validation of ALL critical n8n environment variables
 log_info "Validating all n8n environment variables..."
 MISSING_VARS=()
-[ -z "$N8N_USER" ] && MISSING_VARS+=("N8N_USER")
-[ -z "$N8N_PASSWORD" ] && MISSING_VARS+=("N8N_PASSWORD")
 [ -z "$N8N_ENCRYPTION_KEY" ] && MISSING_VARS+=("N8N_ENCRYPTION_KEY")
 [ -z "$N8N_DB_NAME" ] && MISSING_VARS+=("N8N_DB_NAME")
 [ -z "$N8N_DB_USER" ] && MISSING_VARS+=("N8N_DB_USER")
@@ -460,28 +457,34 @@ services:
       # Encryption
       - N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY
       
-      # Basic Auth
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=$N8N_USER
-      - N8N_BASIC_AUTH_PASSWORD=$N8N_PASSWORD
-      
       # Domain and SSL settings
       - N8N_HOST=$N8N_DOMAIN
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
       - WEBHOOK_URL=https://$N8N_DOMAIN/
       - GENERIC_TIMEZONE=\${TZ:-Europe/Bucharest}
-      
+"
+
+# Add Redis configuration only for queue mode
+if [ "$EXECUTION_MODE" = "queue" ]; then
+    DOCKER_COMPOSE_CONTENT+="      
       # Redis for Queue and Cache (connects to host Redis via vps_network gateway)
       - QUEUE_BULL_REDIS_HOST=$REDIS_HOST
       - QUEUE_BULL_REDIS_PORT=6379
       - QUEUE_BULL_REDIS_DB=0
       - QUEUE_BULL_REDIS_PASSWORD=$REDIS_PASSWORD
-      
-      # Execution
-      - EXECUTIONS_PROCESS=main
-      - EXECUTIONS_MODE=queue
-      
+      - QUEUE_BULL_REDIS_TIMEOUT_THRESHOLD=30000
+      - QUEUE_BULL_REDIS_CONNECT_TIMEOUT=30000
+"
+fi
+
+DOCKER_COMPOSE_CONTENT+="      
+      # Execution Mode
+      - EXECUTIONS_MODE=$EXECUTION_MODE
+"
+
+# Continue with remaining config
+DOCKER_COMPOSE_CONTENT+="
       # Logs
       - N8N_LOG_LEVEL=info
       - N8N_LOG_OUTPUT=console
@@ -573,16 +576,16 @@ server {
         proxy_http_version 1.1;
         
         # WebSocket support (required for n8n real-time features)
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         
         # Standard proxy headers
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header X-Forwarded-Host \$host;
-        proxy_set_header X-Forwarded-Port \$server_port;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
         
         # Extended timeouts for long-running workflows
         proxy_connect_timeout 300s;
@@ -597,7 +600,7 @@ server {
         proxy_hide_header X-Powered-By;
         
         # Additional headers for n8n
-        proxy_set_header X-Scheme \$scheme;
+        proxy_set_header X-Scheme $scheme;
     }
 
     # Health check endpoint (optional monitoring)
@@ -823,7 +826,7 @@ server {
 
     # Redirect all other traffic to HTTPS
     location / {
-        return 301 https://\$host\$request_uri;
+        return 301 https://$host$request_uri;
     }
 }
 
@@ -855,16 +858,16 @@ server {
         proxy_http_version 1.1;
         
         # WebSocket support (required for n8n real-time features)
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         
         # Standard proxy headers
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header X-Forwarded-Host \$host;
-        proxy_set_header X-Forwarded-Port \$server_port;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
         
         # Extended timeouts for long-running workflows
         proxy_connect_timeout 300s;
@@ -879,7 +882,7 @@ server {
         proxy_hide_header X-Powered-By;
         
         # Additional headers for n8n
-        proxy_set_header X-Scheme \$scheme;
+        proxy_set_header X-Scheme $scheme;
     }
 
     # Health check endpoint (optional monitoring)
