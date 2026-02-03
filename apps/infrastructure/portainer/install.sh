@@ -40,8 +40,8 @@ if run_sudo docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; 
             echo ""
             log_info "Access Information:"
             SERVER_IP=$(hostname -I | awk '{print $1}')
-            echo "  HTTP:  http://${SERVER_IP}:9000"
-            echo "  HTTPS: https://${SERVER_IP}:9443"
+            echo "  HTTP:  http://127.0.0.1:9000 (Localhost only - Use SSH Tunnel)"
+            echo "  HTTPS: https://127.0.0.1:9443 (Localhost only - Use SSH Tunnel)"
             exit 0
         fi
     else
@@ -81,8 +81,8 @@ run_sudo docker run -d \
     --network vps_network \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v "${DATA_DIR}/data:/data" \
-    -p 9000:9000 \
-    -p 9443:9443 \
+    -p 127.0.0.1:9000:9000 \
+    -p 127.0.0.1:9443:9443 \
     portainer/portainer-ce:latest
 
 log_success "Portainer container started"
@@ -103,8 +103,8 @@ echo ""
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 log_info "Access Information:"
-echo "  HTTP:  http://${SERVER_IP}:9000"
-echo "  HTTPS: https://${SERVER_IP}:9443 (recommended)"
+echo "  HTTP:  http://127.0.0.1:9000 (Localhost only - Use SSH Tunnel)"
+echo "  HTTPS: https://127.0.0.1:9443 (Localhost only - Use SSH Tunnel)"
 echo ""
 
 log_warn "IMPORTANT - First Time Setup:"

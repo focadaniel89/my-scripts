@@ -100,7 +100,7 @@ run_sudo docker run -d \
     --name "$CONTAINER_NAME" \
     --restart unless-stopped \
     --network "$NETWORK" \
-    -p 3000:3000 \
+    -p 127.0.0.1:3000:3000 \
     -v /var/run/docker.sock:/var/run/docker.sock:ro \
     -v "$DATA_DIR/config:/app/config" \
     -e ADMIN_PASSWORD="$ADMIN_PASSWORD" \
@@ -134,7 +134,7 @@ echo ""
 SERVER_IP=$(hostname -I | awk '{print $1}')
 log_info "Access URLs:"
 echo "  Local:    http://localhost:3000"
-echo "  Network:  http://$SERVER_IP:3000"
+echo "  Network:  No external access (Bind: 127.0.0.1)"
 echo ""
 
 log_info "Login Credentials:"

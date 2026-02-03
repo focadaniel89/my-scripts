@@ -121,8 +121,8 @@ services:
       --requirepass $REDIS_PASSWORD
       --appendonly yes
       --appendfsync everysec
-      --maxmemory 256mb
-      --maxmemory-policy allkeys-lru
+      --maxmemory 512mb
+      --maxmemory-policy noeviction
     ports:
       - \"127.0.0.1:6379:6379\"
     volumes:
@@ -189,7 +189,7 @@ log_info "Redis Information:"
 echo "  Container: $CONTAINER_NAME"
 echo "  Mode: Standalone (applications connect to it via docker network connect)"
 echo "  Data persistence: Enabled (AOF + RDB)"
-echo "  Max memory: 256MB (LRU eviction)"
+echo "  Max memory: 512MB (No eviction protected)"
 echo "  Host access: 127.0.0.1:6379 (localhost only)"
 echo ""
 

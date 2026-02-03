@@ -341,7 +341,7 @@ DOCKER_COMPOSE_CONTENT="version: '3.8'
 
 services:
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.76.0
     container_name: $CONTAINER_NAME
     restart: unless-stopped
     ports:
@@ -364,6 +364,14 @@ services:
       - N8N_PROTOCOL=https
       - WEBHOOK_URL=https://$N8N_DOMAIN/
       - GENERIC_TIMEZONE=\${TZ:-Europe/Bucharest}
+      
+      # Performance & Limits (2026 Optimizations)
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=50
+      - DB_POSTGRESDB_POOL_SIZE=50
+
+      # Maintenance (Auto-pruning)
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168
 "
 
 # Add Redis configuration only for queue mode
@@ -403,6 +411,14 @@ DOCKER_COMPOSE_CONTENT+="
       timeout: 10s
       retries: 3
       start_period: 60s
+      
+    # Resource limits (prevent OOM)
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
 
 networks:
   n8n_network:

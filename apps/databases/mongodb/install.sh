@@ -138,7 +138,7 @@ run_sudo docker run -d \
     -v "${DATA_DIR}/data:/data/db" \
     -v "${DATA_DIR}/configdb:/data/configdb" \
     -p 27017:27017 \
-    mongo:7
+    mongo:7.0.5
 
 log_success "MongoDB container started"
 echo ""
