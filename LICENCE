@@ -1,6 +1,13 @@
+IMPORTANT NOTICE:
+This software performs administrative tasks on your server, including installing software, modifying configurations, and managing services. It is designed to be run on a fresh installation or a dedicated server.
+
+USE AT YOUR OWN RISK. THE AUTHOR IS NOT RESPONSIBLE FOR ANY DATA LOSS, SYSTEM INSTABILITY, OR SECURITY VULNERABILITIES THAT MAY ARISE FROM USING THIS SOFTWARE. ALWAYS BACK UP YOUR DATA BEFORE RUNNING AUTOMATED SCRIPTS.
+
+---
+
 MIT License
 
-Copyright (c) 2025 Daniel Foca
+Copyright (c) 2026 Daniel Foca
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

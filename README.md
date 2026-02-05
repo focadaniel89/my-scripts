@@ -8,7 +8,7 @@
 
 ```bash
 # 1. Clone
-git clone https://github.com/danielfoca89/my-scripts.git
+git clone https://github.com/focadaniel89/my-scripts.git
 cd my-scripts
 
 # 2. Run
@@ -30,12 +30,12 @@ Verified structure of the codebase:
 my-scripts/
 ├── orchestrator.sh              # Main interaction menu & dependency logic
 ├── apps/                        # Application installers (self-contained)
-│   ├── automation/             # n8n
-│   ├── databases/              # Postgres, Redis, Mongo, MariaDB
+│   ├── automation/             # n8n, XyOps
+│   ├── databases/              # Postgres, Redis, Mongo, MariaDB (Docker & Native options)
 │   ├── infrastructure/         # Nginx, Docker, Portainer, Arcane, Certbot
 │   ├── monitoring/             # Grafana, Prometheus, Netdata, Uptime Kuma
 │   ├── system/                 # VPS Setup, Log Maintenance, Node.js
-│   └── security/               # WireGuard, Fail2ban
+│   └── security/               # WireGuard, Fail2ban, Audit
 ├── config/                      # Global configurations (e.g., Docker daemon)
 ├── lib/                         # Shared libraries (networking, secrets, logging)
 ├── tools/                       # Operational scripts (backups, updates, health)
@@ -48,7 +48,7 @@ my-scripts/
 
 ### 1. Network Isolation
 *   **Public Access**: handled strictly by **Nginx** (ports 80/443).
-*   **Internal Services**: Databases (Postgres, Mongo) and Admin UIs (Portainer, Arcane) are bound to `127.0.0.1` or internal Docker networks (`vps_network`).
+*   **Internal Services**: Databases and Admin UIs are bound to `127.0.0.1` or internal Docker networks (`vps_network`).
     *   *Access reserved via SSH Tunnel only.*
 *   **Docker Networks**:
     *   `vps_network`: Shared infrastructure.
@@ -77,39 +77,75 @@ Located in `tools/`:
 | `health-check.sh` | **System Status**. Checks CPU/RAM, active containers, SSL expiry, and failed systemd units. |
 | `backup-credentials.sh` | **Secrets Backup**. Encrypts/archives `~/.vps-secrets` (Cron: Daily). |
 | `backup-databases.sh` | **Data Backup**. Dumps Postgres/Mongo/MariaDB to `/opt/backups` (Cron: Daily). |
-| `update.sh` | **Updater**. Safely pulls new images and recreates containers (`./tools/update.sh update-all`). |
+| `update.sh` | **Updater**. Safely pulls new images and recreates containers. |
+| `setup-dashboard.sh` | **Dashboard**. Configures a terminal-based dashboard for quick overview. |
 
 ---
 
 ## 🧩 Applications Catalog
 
-### Automation
-*   **n8n**: Workflow automation.
-    *   *Features*: PostgreSQL backend, Redis Queue (persistent), Auto-pruning (7 days), AI-ready.
+### 🤖 AI
+*   **Ollama**: Local LLM runner.
+*   **Open WebUI**: Chat interface for Ollama.
+*   **Llama.cpp**: Run LLMs with minimal overhead.
 
-### databases
-*   **PostgreSQL**: with **pgvector** for AI embeddings.
-*   **Redis**: Optimized for reliability (`noeviction` policy, 512MB limit).
-*   **MongoDB**: Document store (pinned stable version).
+### ⚡ Automation
+*   **n8n**: Workflow automation (PostgreSQL + Redis supported).
+*   **XyOps**: Lightweight automation/orchestration tool (Node.js).
 
-### Infrastructure
-*   **Nginx**: Reverse proxy with auto-generated dashboards.
+### 🗄️ Databases
+*   **PostgreSQL**: Available as **Docker** container or **Native** system service. Includes `pgvector`.
+*   **Redis**: Available as **Docker** container or **Native** system service. Optimized for reliability.
+*   **MongoDB**: Document store.
+*   **MariaDB**: SQL database.
+
+### 🏗️ Infrastructure
+*   **Nginx**: Reverse proxy with auto-generated configurations.
 *   **Portainer**: Docker UI (Localhost only).
 *   **Arcane**: Docker management (Localhost only).
+*   **Certbot**: SSL certificate management.
 
-### System
-*   **Log Maintenance**: Auto-rotates Docker/System logs to prevent disk exhaustion.
+### 📊 Monitoring
+*   **Grafana**: Visualization platform (Docker & Native options).
+*   **Prometheus**: Metrics collection (Docker & Native options).
+*   **Netdata**: Real-time performance monitoring.
+*   **Uptime Kuma**: Uptime monitoring tool.
+
+### 🔐 Security
+*   **WireGuard**: Modern VPN tunnel.
+*   **Fail2ban**: Intrusion prevention.
+*   **Security Audit**: Scans system for vulnerabilities.
+
+### ⚙️ System
+*   **VPS Setup**: Initial server provisioning.
+*   **Log Maintenance**: Auto-rotates logs to prevent disk exhaustion.
+*   **Node.js**: Environment setup.
 
 ---
 
 ## 📝 Latest Changes (Feb 2026)
 
-*   **Security Critical**: Locked down Admin UIs (Portainer/Arcane) to `127.0.0.1`.
+*   **AI Suite**: Added support for local AI tools (Ollama).
+*   **Native vs Docker**: Added flexible installation options for Databases and Monitoring tools.
+*   **Security Critical**: Locked down Admin UIs to `127.0.0.1`.
 *   **Stability**: Fixed Redis memory policy to prevent n8n job loss.
 *   **Maintenance**: Enabled auto-pruning for n8n execution data.
-*   **Logging**: Implemented global Docker log limits (100MB/container).
+
+---
+
+## 📌 Versioning
+
+This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). For the versions available, see the [tags on this repository](https://github.com/focadaniel89/my-scripts/tags).
+
+See [CHANGELOG.md](CHANGELOG.md) for details on changes.
 
 ---
 
 ## 📜 License
-MIT License.
+MIT License - Copyright (c) 2026 Daniel Foca
+
+See [LICENCE](LICENCE) file for details.
+
+## Author
+
+**Daniel Foca** ([@focadaniel89](https://github.com/focadaniel89))
