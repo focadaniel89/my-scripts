@@ -16,9 +16,10 @@ cd my-scripts
 ```
 
 The **Orchestrator** is your main entry point. It handles:
-*   **Dependency Resolution**: Auto-installs Docker, Nginx, or Databases if an app needs them.
-*   **Security**: Generates random passwords, creates isolated users, and binds sensitive ports to localhost.
-*   **State**: Stores all secrets in `~/.vps-secrets/`.
+
+* **Dependency Resolution**: Auto-installs Docker, Nginx, or Databases if an app needs them.
+* **Security**: Generates random passwords, creates isolated users, and binds sensitive ports to localhost.
+* **State**: Stores all secrets in `~/.vps-secrets/`.
 
 ---
 
@@ -47,24 +48,28 @@ my-scripts/
 ## 🛡️ Security Architecture
 
 ### 1. Network Isolation
-*   **Public Access**: handled strictly by **Nginx** (ports 80/443).
-*   **Internal Services**: Databases and Admin UIs are bound to `127.0.0.1` or internal Docker networks (`vps_network`).
-    *   *Access reserved via SSH Tunnel only.*
-*   **Docker Networks**:
-    *   `vps_network`: Shared infrastructure.
-    *   `n8n_network`: Isolated for automation workflows.
+
+* **Public Access**: handled strictly by **Nginx** (ports 80/443).
+* **Internal Services**: Databases and Admin UIs are bound to `127.0.0.1` or internal Docker networks (`vps_network`).
+  * *Access reserved via SSH Tunnel only.*
+* **Docker Networks**:
+  * `vps_network`: Shared infrastructure.
+  * `n8n_network`: Isolated for automation workflows.
 
 ### 2. System Hardening
+
 Managed by `apps/system/setup-vps`:
-*   **SSH**: Root login disabled, custom port configured.
-*   **Firewall**: UFW/Firewalld configured to deny incoming by default.
-*   **Fail2Ban**: Active intrusion prevention.
-*   **Updates**: Unattended security upgrades enabled.
+
+* **SSH**: Root login disabled, custom port configured.
+* **Firewall**: UFW/Firewalld configured to deny incoming by default.
+* **Fail2Ban**: Active intrusion prevention.
+* **Updates**: Unattended security upgrades enabled.
 
 ### 3. Credential Management
-*   **Storage**: `~/.vps-secrets/` (chmod 600).
-*   **Generation**: Cryptographically strong random passwords (32+ chars).
-*   **Isolation**: Separate `.env` files per service (e.g., `.env_postgres`, `.env_n8n`).
+
+* **Storage**: `~/.vps-secrets/` (chmod 600).
+* **Generation**: Cryptographically strong random passwords (32+ chars).
+* **Isolation**: Separate `.env` files per service (e.g., `.env_postgres`, `.env_n8n`).
 
 ---
 
@@ -85,51 +90,58 @@ Located in `tools/`:
 ## 🧩 Applications Catalog
 
 ### 🤖 AI
-*   **Ollama**: Local LLM runner.
-*   **Open WebUI**: Chat interface for Ollama.
-*   **Llama.cpp**: Run LLMs with minimal overhead.
+
+* **Ollama**: Local LLM runner.
+* **Open WebUI**: Chat interface for Ollama.
+* **Llama.cpp**: Run LLMs with minimal overhead.
 
 ### ⚡ Automation
-*   **n8n**: Workflow automation (PostgreSQL + Redis supported).
-*   **XyOps**: Lightweight automation/orchestration tool (Node.js).
+
+* **n8n**: Workflow automation (PostgreSQL + Redis supported).
+* **XyOps**: Lightweight automation/orchestration tool (Node.js).
 
 ### 🗄️ Databases
-*   **PostgreSQL**: Available as **Docker** container or **Native** system service. Includes `pgvector`.
-*   **Redis**: Available as **Docker** container or **Native** system service. Optimized for reliability.
-*   **MongoDB**: Document store.
-*   **MariaDB**: SQL database.
+
+* **PostgreSQL**: Available as **Docker** container or **Native** system service. Includes `pgvector`.
+* **Redis**: Available as **Docker** container or **Native** system service. Optimized for reliability.
+* **MongoDB**: Document store.
+* **MariaDB**: SQL database.
 
 ### 🏗️ Infrastructure
-*   **Nginx**: Reverse proxy with auto-generated configurations.
-*   **Portainer**: Docker UI (Localhost only).
-*   **Arcane**: Docker management (Localhost only).
-*   **Certbot**: SSL certificate management.
+
+* **Nginx**: Reverse proxy with auto-generated configurations.
+* **Portainer**: Docker UI (Localhost only).
+* **Arcane**: Docker management (Localhost only).
+* **Certbot**: SSL certificate management.
 
 ### 📊 Monitoring
-*   **Grafana**: Visualization platform (Docker & Native options).
-*   **Prometheus**: Metrics collection (Docker & Native options).
-*   **Netdata**: Real-time performance monitoring.
-*   **Uptime Kuma**: Uptime monitoring tool.
+
+* **Grafana**: Visualization platform (Docker & Native options).
+* **Prometheus**: Metrics collection (Docker & Native options).
+* **Netdata**: Real-time performance monitoring.
+* **Uptime Kuma**: Uptime monitoring tool.
 
 ### 🔐 Security
-*   **WireGuard**: Modern VPN tunnel.
-*   **Fail2ban**: Intrusion prevention.
-*   **Security Audit**: Scans system for vulnerabilities.
+
+* **WireGuard**: Modern VPN tunnel.
+* **Fail2ban**: Intrusion prevention.
+* **Security Audit**: Scans system for vulnerabilities.
 
 ### ⚙️ System
-*   **VPS Setup**: Initial server provisioning.
-*   **Log Maintenance**: Auto-rotates logs to prevent disk exhaustion.
-*   **Node.js**: Environment setup.
+
+* **VPS Setup**: Initial server provisioning.
+* **Log Maintenance**: Auto-rotates logs to prevent disk exhaustion.
+* **Node.js**: Environment setup.
 
 ---
 
 ## 📝 Latest Changes (Feb 2026)
 
-*   **AI Suite**: Added support for local AI tools (Ollama).
-*   **Native vs Docker**: Added flexible installation options for Databases and Monitoring tools.
-*   **Security Critical**: Locked down Admin UIs to `127.0.0.1`.
-*   **Stability**: Fixed Redis memory policy to prevent n8n job loss.
-*   **Maintenance**: Enabled auto-pruning for n8n execution data.
+* **AI Suite**: Added support for local AI tools (Ollama).
+* **Native vs Docker**: Added flexible installation options for Databases and Monitoring tools.
+* **Security Critical**: Locked down Admin UIs to `127.0.0.1`.
+* **Stability**: Fixed Redis memory policy to prevent n8n job loss.
+* **Maintenance**: Enabled auto-pruning for n8n execution data.
 
 ---
 
@@ -142,9 +154,10 @@ See [CHANGELOG.md](CHANGELOG.md) for details on changes.
 ---
 
 ## 📜 License
+
 MIT License - Copyright (c) 2026 Daniel Foca
 
-See [LICENCE](LICENCE) file for details.
+See [LICENSE](LICENSE) file for details.
 
 ## Author
 
