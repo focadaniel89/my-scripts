@@ -117,7 +117,7 @@ gather_information() {
     while true; do
         echo -ne "${YELLOW}Enter new SSH port [Default port 22]:${NC} "
         read -r SSH_PORT
-        SSH_PORT=${SSH_PORT:-2222}
+        SSH_PORT=${SSH_PORT:-22}
         
         if [[ ! "$SSH_PORT" =~ ^[0-9]+$ ]] || [ "$SSH_PORT" -lt 1024 ] || [ "$SSH_PORT" -gt 65535 ]; then
             log_error "Port must be between 1024 and 65535"
@@ -223,6 +223,24 @@ create_admin_user() {
     USER_HOME="/home/$NEW_USER"
     run_sudo mkdir -p "$USER_HOME/.ssh"
     run_sudo chmod 700 "$USER_HOME/.ssh"
+    
+    # Copy root keys if they exist
+    if [ -f "/root/.ssh/authorized_keys" ]; then
+        log_info "Copying SSH keys from root..."
+        run_sudo cp /root/.ssh/authorized_keys "$USER_HOME/.ssh/authorized_keys"
+    else
+        log_warn "No SSH keys found in /root/.ssh/authorized_keys"
+        echo -ne "${YELLOW}Paste your SSH public key now (or press Enter to skip):${NC} "
+        read -r SSH_KEY_INPUT
+        if [ -n "$SSH_KEY_INPUT" ]; then
+            echo "$SSH_KEY_INPUT" | run_sudo tee "$USER_HOME/.ssh/authorized_keys" > /dev/null
+        else
+            log_warn "No SSH key provided! You may be locked out if password auth is disabled."
+            run_sudo touch "$USER_HOME/.ssh/authorized_keys"
+        fi
+    fi
+    
+    run_sudo chmod 600 "$USER_HOME/.ssh/authorized_keys"
     run_sudo chown -R "$NEW_USER:$NEW_USER" "$USER_HOME/.ssh"
     
     # Move repository if exists
@@ -308,7 +326,7 @@ Protocol 2
 # Authentication
 PermitRootLogin no
 PubkeyAuthentication yes
-PasswordAuthentication yes
+PasswordAuthentication no
 PermitEmptyPasswords no
 ChallengeResponseAuthentication no
 UsePAM yes
