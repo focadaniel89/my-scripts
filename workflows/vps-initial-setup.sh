@@ -212,11 +212,13 @@ create_admin_user() {
         run_sudo useradd -m -s /bin/bash "$NEW_USER"
         echo "${NEW_USER}:${NEW_PASSWORD}" | run_sudo chpasswd
         run_sudo usermod -aG "$SUDO_GROUP" "$NEW_USER"
-        log_success "User $NEW_USER created and added to $SUDO_GROUP group"
+        run_sudo loginctl enable-linger "$NEW_USER"
+        log_success "User $NEW_USER created, added to $SUDO_GROUP group, and linger enabled"
     else
         echo "${NEW_USER}:${NEW_PASSWORD}" | run_sudo chpasswd
         run_sudo usermod -aG "$SUDO_GROUP" "$NEW_USER"
-        log_success "User $NEW_USER updated and added to $SUDO_GROUP group"
+        run_sudo loginctl enable-linger "$NEW_USER"
+        log_success "User $NEW_USER updated, added to $SUDO_GROUP group, and linger enabled"
     fi
     
     # Setup SSH directory

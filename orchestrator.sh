@@ -322,6 +322,9 @@ for category in apps/*/; do
     for app_dir in "$category"*/; do
         if [ -d "$app_dir" ] && [ -f "${app_dir}install.sh" ]; then
             app_name=$(basename "$app_dir")
+            display_name=$(get_app_config "$app_name" "display_name" 2>/dev/null || echo "")
+            [ -z "$display_name" ] && display_name="$app_name"
+            
             apps_list+=("${category_name}/${app_name}")
             
             # Show if installed (disable exit on error for this check)
@@ -333,9 +336,9 @@ for category in apps/*/; do
             fi
             
             if [ -n "$installed_status" ] && [ "$installed_status" = "✓ Installed" ]; then
-                printf "   %2d) %-25s [%s]\n" "$counter" "$app_name" "$installed_status"
+                printf "   %2d) %-35s [%s]\n" "$counter" "$display_name" "$installed_status"
             else
-                printf "   %2d) %s\n" "$counter" "$app_name"
+                printf "   %2d) %s\n" "$counter" "$display_name"
             fi
             ((counter++))
         fi
