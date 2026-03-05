@@ -325,7 +325,7 @@ for category in apps/*/; do
             display_name=$(get_app_config "$app_name" "display_name" 2>/dev/null || echo "")
             [ -z "$display_name" ] && display_name="$app_name"
             
-            apps_list+=("${category_name}/${app_name}")
+            apps_list+=("app:${category_name}/${app_name}")
             
             # Show if installed (disable exit on error for this check)
             # Use subshell to prevent script termination on error
@@ -346,6 +346,19 @@ for category in apps/*/; do
     echo ""
 done
 
+if ls workflows/*.sh 1> /dev/null 2>&1; then
+    echo "[workflows]"
+    for wf in workflows/*.sh; do
+        if [ -f "$wf" ]; then
+            wf_name=$(basename "$wf" .sh)
+            apps_list+=("workflow:${wf}")
+            printf "   %2d) %s\n" "$counter" "Run ${wf_name}"
+            ((counter++))
+        fi
+    done
+    echo ""
+fi
+
 echo "=============================================="
 echo " 0) Exit"
 echo "=============================================="
@@ -365,93 +378,127 @@ fi
 
 if [ "$choice" -ge 1 ] && [ "$choice" -lt "$counter" ]; then
     selected="${apps_list[$((choice-1))]}"
-    category=$(dirname "$selected")
-    app=$(basename "$selected")
+    sel_type="${selected%%:*}"
+    sel_val="${selected#*:}"
     
-    echo ""
-    echo "=============================================="
-    echo "Installing: $app"
-    echo "=============================================="
-    echo ""
-    
-    # Check and install dependencies (if any)
-    log_step "Checking dependencies..."
-    
-    # Get dependencies for this app (may be empty)
-    app_deps=$(get_app_config "$app" "dependencies" 2>/dev/null || echo "")
-    
-    if [ -n "$app_deps" ]; then
-        log_info "Dependencies found: $app_deps"
-        if install_dependencies "$app"; then
-            log_success "All dependencies satisfied"
-        else
-            log_error "Dependency installation failed"
-            exit 1
-        fi
-    else
-        log_info "No dependencies required for: $app"
-    fi
-    echo ""
-    
-    # Run app installer with manual confirmation
-    script_path="${SCRIPT_DIR}/apps/${category}/${app}/install.sh"
-    
-    if [ -f "$script_path" ]; then
-        log_info "═══════════════════════════════════════════"
-        log_info "  Starting installer: $app (main application)"
-        log_info "═══════════════════════════════════════════"
-        echo ""
-        
-        bash "$script_path"
-        APP_EXIT_CODE=$?
+    if [ "$sel_type" = "app" ]; then
+        category=$(dirname "$sel_val")
+        app=$(basename "$sel_val")
         
         echo ""
-        log_info "═══════════════════════════════════════════"
-        log_info "  Installer finished: $app (exit code: $APP_EXIT_CODE)"
-        log_info "═══════════════════════════════════════════"
-        
-        # Check exit code
-        if [ $APP_EXIT_CODE -ne 0 ]; then
-            log_error "Installer exited with error code: $APP_EXIT_CODE"
-            log_error "Application installation may have failed: $app"
-            echo ""
-            log_warn "Please review the output above for errors"
-            exit 1
-        fi
-        
-        # Manual verification step
-        echo ""
-        log_info "Please verify the installation completed successfully."
-        log_info "Check the output above for any errors or warnings."
+        echo "=============================================="
+        echo "Installing: $app"
+        echo "=============================================="
         echo ""
         
-        if confirm_action "Did '$app' install successfully?"; then
-            log_success "Installation confirmed by user: $app"
-            echo ""
-            
-            # Check for optional dependencies AFTER main app installation
-            log_step "Checking optional enhancements..."
-            app_opt_deps=$(get_app_config "$app" "optional_dependencies" 2>/dev/null || echo "")
-            
-            if [ -n "$app_opt_deps" ]; then
-                log_info "Optional enhancements available: $app_opt_deps"
-                install_optional_dependencies "$app"
+        # Check and install dependencies (if any)
+        log_step "Checking dependencies..."
+        
+        # Get dependencies for this app (may be empty)
+        app_deps=$(get_app_config "$app" "dependencies" 2>/dev/null || echo "")
+        
+        if [ -n "$app_deps" ]; then
+            log_info "Dependencies found: $app_deps"
+            if install_dependencies "$app"; then
+                log_success "All dependencies satisfied"
             else
-                log_info "No optional enhancements for: $app"
+                log_error "Dependency installation failed"
+                exit 1
             fi
+        else
+            log_info "No dependencies required for: $app"
+        fi
+        echo ""
+        
+        # Run app installer with manual confirmation
+        script_path="${SCRIPT_DIR}/apps/${category}/${app}/install.sh"
+        
+        if [ -f "$script_path" ]; then
+            log_info "═══════════════════════════════════════════"
+            log_info "  Starting installer: $app (main application)"
+            log_info "═══════════════════════════════════════════"
             echo ""
             
-            log_success "═══════════════════════════════════════════"
-            log_success "  Installation Complete: $app"
-            log_success "═══════════════════════════════════════════"
+            bash "$script_path"
+            APP_EXIT_CODE=$?
+            
+            echo ""
+            log_info "═══════════════════════════════════════════"
+            log_info "  Installer finished: $app (exit code: $APP_EXIT_CODE)"
+            log_info "═══════════════════════════════════════════"
+            
+            # Check exit code
+            if [ $APP_EXIT_CODE -ne 0 ]; then
+                log_error "Installer exited with error code: $APP_EXIT_CODE"
+                log_error "Application installation may have failed: $app"
+                echo ""
+                log_warn "Please review the output above for errors"
+                exit 1
+            fi
+            
+            # Manual verification step
+            echo ""
+            log_info "Please verify the installation completed successfully."
+            log_info "Check the output above for any errors or warnings."
+            echo ""
+            
+            if confirm_action "Did '$app' install successfully?"; then
+                log_success "Installation confirmed by user: $app"
+                echo ""
+                
+                # Check for optional dependencies AFTER main app installation
+                log_step "Checking optional enhancements..."
+                app_opt_deps=$(get_app_config "$app" "optional_dependencies" 2>/dev/null || echo "")
+                
+                if [ -n "$app_opt_deps" ]; then
+                    log_info "Optional enhancements available: $app_opt_deps"
+                    install_optional_dependencies "$app"
+                else
+                    log_info "No optional enhancements for: $app"
+                fi
+                echo ""
+                
+                log_success "═══════════════════════════════════════════"
+                log_success "  Installation Complete: $app"
+                log_success "═══════════════════════════════════════════"
+            else
+                log_warn "Installation not confirmed by user"
+                log_info "You can manually run: $script_path"
+                exit 1
+            fi
         else
-            log_warn "Installation not confirmed by user"
-            log_info "You can manually run: $script_path"
+            echo "ERROR: Install script not found: $script_path"
             exit 1
         fi
-    else
-        echo "ERROR: Install script not found: $script_path"
-        exit 1
+    elif [ "$sel_type" = "workflow" ]; then
+        wf_name=$(basename "$sel_val" .sh)
+        echo ""
+        echo "=============================================="
+        echo "Running Workflow: $wf_name"
+        echo "=============================================="
+        echo ""
+        
+        script_path="${SCRIPT_DIR}/${sel_val}"
+        if [ -f "$script_path" ]; then
+            log_info "═══════════════════════════════════════════"
+            log_info "  Starting workflow: $wf_name"
+            log_info "═══════════════════════════════════════════"
+            echo ""
+            
+            bash "$script_path"
+            WF_EXIT_CODE=$?
+            
+            echo ""
+            log_info "═══════════════════════════════════════════"
+            log_info "  Workflow finished: $wf_name (exit code: $WF_EXIT_CODE)"
+            log_info "═══════════════════════════════════════════"
+            
+            echo ""
+            read -p "Press Enter to continue..."
+        else
+            echo "ERROR: Workflow script not found: $script_path"
+            exit 1
+        fi
     fi
 else
     echo "Invalid selection!"
