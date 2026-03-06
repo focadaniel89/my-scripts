@@ -204,7 +204,7 @@ preflight_check_silent() {
 }
 
 # Minimal startup check for orchestrator (no prompt, just warnings)
-# Verifies: bash version, OS, internet
+# Verifies: bash version, OS, internet, first-run state
 preflight_startup() {
     local ok=true
 
@@ -222,8 +222,44 @@ preflight_startup() {
         log_warn "Internet not reachable — some installers may fail."
     fi
 
+    # ── First-run detection ────────────────────────────────────
+    # If vps-initial-setup has never run, prompt the user to run it now
+    local SETUP_MARKER="${HOME}/.vps-setup-done"
+    local SETUP_SCRIPT
+    SETUP_SCRIPT="$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")/workflows/vps-initial-setup.sh"
+
+    if [ ! -f "$SETUP_MARKER" ] && [ -f "$SETUP_SCRIPT" ]; then
+        echo ""
+        log_warn "═══════════════════════════════════════════════════════"
+        log_warn "  ⚠  FIRST RUN DETECTED — VPS has NOT been hardened yet"
+        log_warn "═══════════════════════════════════════════════════════"
+        echo ""
+        log_info "It is strongly recommended to run VPS initial setup first."
+        log_info "This includes: SSH hardening, firewall, fail2ban, user config."
+        echo ""
+        read -rp "  Run VPS Initial Setup now? [Y/n]: " _run_setup
+        if [[ "${_run_setup:-Y}" =~ ^[Yy]$ ]]; then
+            echo ""
+            bash "$SETUP_SCRIPT"
+            local _exit=$?
+            echo ""
+            if [ $_exit -eq 0 ]; then
+                touch "$SETUP_MARKER"
+                log_success "VPS Initial Setup completed. Continuing to orchestrator menu..."
+            else
+                log_warn "Setup exited with code $_exit — you can re-run from the menu (Workflows section)."
+            fi
+            echo ""
+            read -rp "Press Enter to continue to the menu..."
+        else
+            log_warn "Skipping setup. You can run it later from: Orchestrator → Workflows → vps-initial-setup"
+            echo ""
+        fi
+    fi
+
     $ok && return 0 || return 1
 }
 
 export -f preflight_check preflight_check_silent preflight_startup check_internet
+
 

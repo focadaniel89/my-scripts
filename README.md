@@ -10,20 +10,18 @@
 ## 🚀 Quick Start
 
 ```bash
-# 1. Clone
+# 1. Clone the repository
 git clone https://github.com/focadaniel89/my-scripts.git
 cd my-scripts
 
-# 2. First run — VPS hardening (on a fresh server, NOT over SSH)
-sudo ./workflows/vps-initial-setup.sh
-
-# 3. Install applications
-./orchestrator.sh
+# 2. Run the orchestrator
+sudo ./orchestrator.sh
 ```
 
 **Requirements:** `Debian 11+` or `Ubuntu 22.04+` · `Bash 4+` · Root or sudo access
 
-The **Orchestrator** is your main entry point. It:
+The **Orchestrator** is your single entry point. It:
+- **Detects first run** — automatically prompts VPS hardening on a fresh server
 - **Resolves dependencies** automatically (Docker, Nginx, DBs)
 - **Detects installed apps** and shows their status in the menu
 - **Loops back** to the menu after each action — no need to re-run
