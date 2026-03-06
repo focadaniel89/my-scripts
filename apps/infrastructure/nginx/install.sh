@@ -3,6 +3,7 @@
 # ==============================================================================
 # NGINX REVERSE PROXY INSTALLATION (NATIVE)
 # Installs Nginx directly on host system for maximum performance
+# Native install — Debian/Ubuntu only
 # ==============================================================================
 
 set -euo pipefail
@@ -11,16 +12,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 source "${SCRIPT_DIR}/lib/utils.sh"
 source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/os-detect.sh"
+source "${SCRIPT_DIR}/lib/preflight.sh"
 
 APP_NAME="nginx"
 CONF_DIR="/etc/nginx"
 HTML_DIR="/var/www/html"
 LOG_DIR="/var/log/nginx"
 
+# Guard: require Debian/Ubuntu (native install)
+require_debian
+
+# Cleanup on error
+INSTALL_FAILED=false
+cleanup_on_error() {
+    if [ "$INSTALL_FAILED" = true ]; then
+        log_error "Nginx installation failed."
+        audit_log "INSTALL_FAILED" "$APP_NAME" "Cleanup: check nginx config with: nginx -t"
+    fi
+}
+trap 'INSTALL_FAILED=true; cleanup_on_error' ERR INT TERM
+
 log_info "═══════════════════════════════════════════"
 log_info "  Installing Nginx Reverse Proxy (Native)"
 log_info "═══════════════════════════════════════════"
 echo ""
+
+audit_log "INSTALL_START" "$APP_NAME"
 
 # Detect OS
 log_step "Step 1: Detecting operating system"
@@ -397,6 +414,8 @@ echo "  sudo nginx -t                   # Test configuration"
 echo "  sudo tail -f /var/log/nginx/access.log  # View access logs"
 echo "  sudo tail -f /var/log/nginx/error.log   # View error logs"
 echo ""
+
+audit_log "INSTALL_COMPLETE" "$APP_NAME" "Native install, config: $CONF_DIR"
 
 log_warn "Security Note:"
 echo "  • Configure SSL certificates with Certbot"

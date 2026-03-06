@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# ==============================================================================
+# GRAFANA VISUALIZATION PLATFORM INSTALLATION
+# Deploys Grafana for metrics visualization and monitoring dashboards
+# ==============================================================================
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -7,20 +12,35 @@ source "${SCRIPT_DIR}/lib/utils.sh"
 source "${SCRIPT_DIR}/lib/os-detect.sh"
 source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/docker.sh"
-
-# ==============================================================================
-# GRAFANA VISUALIZATION PLATFORM INSTALLATION
-# Deploys Grafana for metrics visualization and monitoring dashboards
-# ==============================================================================
+source "${SCRIPT_DIR}/lib/preflight.sh"
 
 APP_NAME="grafana"
 CONTAINER_NAME="grafana"
 DATA_DIR="/opt/monitoring/grafana"
 
+# Cleanup on error
+INSTALL_FAILED=false
+cleanup_on_error() {
+    if [ "$INSTALL_FAILED" = true ]; then
+        log_error "Installation failed, cleaning up..."
+        if run_sudo docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$" 2>/dev/null; then
+            log_info "Removing failed container: $CONTAINER_NAME"
+            run_sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+        fi
+        audit_log "INSTALL_FAILED" "$APP_NAME" "Cleanup completed"
+    fi
+}
+trap 'INSTALL_FAILED=true; cleanup_on_error' ERR INT TERM
+
 log_info "═══════════════════════════════════════════"
 log_info "  Installing Grafana Visualization"
 log_info "═══════════════════════════════════════════"
 echo ""
+
+audit_log "INSTALL_START" "$APP_NAME"
+
+# Pre-flight checks
+preflight_check "$APP_NAME" 5 2 "3000"
 
 # Check dependency
 log_step "Step 1: Checking dependencies"
@@ -109,9 +129,10 @@ run_sudo docker run -d \
     -e GF_SECURITY_ADMIN_USER="$GF_SECURITY_ADMIN_USER" \
     -e GF_SECURITY_ADMIN_PASSWORD="$GF_SECURITY_ADMIN_PASSWORD" \
     -e GF_INSTALL_PLUGINS="grafana-clock-panel,grafana-simple-json-datasource" \
+    -e GF_SERVER_HTTP_ADDR="127.0.0.1" \
     -v "${DATA_DIR}/data:/var/lib/grafana" \
     -v "${DATA_DIR}/provisioning:/etc/grafana/provisioning" \
-    -p 3000:3000 \
+    -p 127.0.0.1:3000:3000 \
     --health-cmd="wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1" \
     --health-interval=30s \
     --health-timeout=10s \
@@ -134,7 +155,7 @@ echo ""
 
 # Verify container health
 log_step "Step 7: Verifying installation"
-if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+if run_sudo docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     log_success "Grafana is running and healthy"
 else
     log_error "Grafana container is not running"
@@ -146,7 +167,9 @@ echo ""
 log_success "═══════════════════════════════════════════"
 log_success "  Grafana Installation Complete!"
 log_success "═══════════════════════════════════════════"
+audit_log "INSTALL_COMPLETE" "$APP_NAME" "Container: $CONTAINER_NAME, Port: 127.0.0.1:3000"
 echo ""
+log_warn "⚠ Grafana is bound to 127.0.0.1:3000 (localhost only). Use SSH tunnel or Nginx reverse proxy for external access."
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 

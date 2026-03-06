@@ -109,8 +109,7 @@ echo ""
 log_step "Step 4: Creating Docker Compose configuration"
 COMPOSE_FILE_CREATED=true
 
-DOCKER_COMPOSE_CONTENT="version: '3.8'
-
+DOCKER_COMPOSE_CONTENT="
 services:
   redis:
     image: redis:7-alpine

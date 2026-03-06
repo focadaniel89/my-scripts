@@ -14,6 +14,16 @@ SECRETS_DIR="${HOME}/.vps-secrets"
 BACKUP_DIR="${SECRETS_DIR}/.backup"
 RETENTION_DAYS=${RETENTION_DAYS:-30}
 
+# Trap for unexpected errors
+BACKUP_FAILED=false
+cleanup_on_error() {
+    if [ "$BACKUP_FAILED" = true ]; then
+        log_error "Credentials backup encountered an error."
+        audit_log "BACKUP_FAILED" "backup-credentials" "Check backup dir: $BACKUP_DIR"
+    fi
+}
+trap 'BACKUP_FAILED=true; cleanup_on_error' ERR INT TERM
+
 init_backup_dir() {
     if [ ! -d "$BACKUP_DIR" ]; then
         mkdir -p "$BACKUP_DIR"

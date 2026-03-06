@@ -3,6 +3,7 @@
 # ==============================================================================
 # WIREGUARD VPN SERVER (NATIVE)
 # Modern, fast, and secure VPN with kernel-level performance
+# Native install — Debian/Ubuntu only
 # ==============================================================================
 
 set -euo pipefail
@@ -11,6 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 source "${SCRIPT_DIR}/lib/utils.sh"
 source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/os-detect.sh"
+source "${SCRIPT_DIR}/lib/preflight.sh"
 
 APP_NAME="wireguard"
 WG_CONF_DIR="/etc/wireguard"
@@ -19,10 +21,27 @@ WG_PORT=51820
 WG_SUBNET="10.13.13.0/24"
 WG_SERVER_IP="10.13.13.1"
 
+# Guard: require Debian/Ubuntu (native kernel module install)
+require_debian
+
+# Cleanup on error
+INSTALL_FAILED=false
+cleanup_on_error() {
+    if [ "$INSTALL_FAILED" = true ]; then
+        log_error "WireGuard installation failed, cleaning up..."
+        # Bring down interface if partially configured
+        run_sudo wg-quick down "$WG_INTERFACE" 2>/dev/null || true
+        audit_log "INSTALL_FAILED" "$APP_NAME" "Cleanup completed"
+    fi
+}
+trap 'INSTALL_FAILED=true; cleanup_on_error' ERR INT TERM
+
 log_info "═══════════════════════════════════════════"
 log_info "  Installing WireGuard VPN Server (Native)"
 log_info "═══════════════════════════════════════════"
 echo ""
+
+audit_log "INSTALL_START" "$APP_NAME"
 
 # Detect OS
 log_step "Step 1: Detecting operating system"
@@ -338,12 +357,29 @@ echo "  iptables:  sudo iptables -A INPUT -p udp --dport $WG_PORT -j ACCEPT"
 echo ""
 
 log_info "💡 Next steps:"
-echo "  1. Configure firewall: sudo ufw allow $WG_PORT/udp"
-echo "  2. List peers: sudo wg-manage list"
-echo "  3. Get QR code: sudo wg-manage qr peer1"
-echo "  4. Install WireGuard app on devices"
-echo "  5. Scan QR code or import configuration"
-echo "  6. Connect and test: ping $WG_SERVER_IP"
+echo "  1. List peers: sudo wg-manage list"
+echo "  2. Get QR code: sudo wg-manage qr peer1"
+echo "  3. Install WireGuard app on devices"
+echo "  4. Scan QR code or import configuration"
+echo "  5. Connect and test: ping $WG_SERVER_IP"
 echo ""
 
+# Auto-configure firewall for WireGuard port
+if command -v ufw &>/dev/null && run_sudo ufw status | grep -q "^Status: active"; then
+    log_step "Configuring UFW firewall for WireGuard..."
+    run_sudo ufw allow "${WG_PORT}/udp" comment "WireGuard VPN" || true
+    log_success "✅ UFW rule added: ${WG_PORT}/udp"
+elif command -v firewall-cmd &>/dev/null; then
+    log_step "Configuring firewalld for WireGuard..."
+    run_sudo firewall-cmd --add-port="${WG_PORT}/udp" --permanent 2>/dev/null || true
+    run_sudo firewall-cmd --reload 2>/dev/null || true
+    log_success "✅ firewalld rule added: ${WG_PORT}/udp"
+else
+    log_warn "⚠ Could not auto-configure firewall. Manual step required:"
+    log_warn "   UFW:       sudo ufw allow ${WG_PORT}/udp"
+    log_warn "   firewalld: sudo firewall-cmd --add-port=${WG_PORT}/udp --permanent"
+    log_warn "   iptables:  sudo iptables -A INPUT -p udp --dport ${WG_PORT} -j ACCEPT"
+fi
+echo ""
 
+audit_log "INSTALL_COMPLETE" "$APP_NAME" "Interface: $WG_INTERFACE, Port: $WG_PORT/udp, Subnet: $WG_SUBNET"

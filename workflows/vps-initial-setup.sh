@@ -183,7 +183,7 @@ install_security_tools() {
     
     # Add distro-specific packages
     if is_debian_based; then
-        packages="$packages sudo ufw fail2ban auditd chrony unattended-upgrades apt-listchanges net-tools libpam-tmpdir"
+        packages="$packages sudo ufw fail2ban auditd chrony unattended-upgrades apt-listchanges net-tools libpam-tmpdir apparmor apparmor-utils apparmor-profiles"
     elif is_rhel_based; then
         packages="$packages sudo firewalld fail2ban audit chrony dnf-automatic net-tools"
     fi
@@ -220,9 +220,36 @@ create_admin_user() {
         run_sudo loginctl enable-linger "$NEW_USER"
         log_success "User $NEW_USER updated, added to $SUDO_GROUP group, and linger enabled"
     fi
-    
-    # Setup SSH directory
+
+    # Setup user home variable (used by both the fix and SSH setup below)
     USER_HOME="/home/$NEW_USER"
+
+    # --- SYSTEMCTL --USER FIX ---
+    # loginctl enable-linger (above) persists the runtime dir across reboots,
+    # but the dir itself doesn't exist until a full login - we force-create it now.
+    local USER_UID
+    USER_UID=$(id -u "$NEW_USER")
+    run_sudo mkdir -p "/run/user/$USER_UID"
+    run_sudo chown "$NEW_USER:$NEW_USER" "/run/user/$USER_UID"
+    run_sudo chmod 700 "/run/user/$USER_UID"
+    log_success "XDG_RUNTIME_DIR /run/user/$USER_UID created"
+
+    # Inject env vars into .bashrc so every terminal session is ready to use
+    # systemctl --user, Docker rootless, PM2, etc. without manual setup.
+    {
+        echo ""
+        echo "# Systemd User Services Fix"
+        echo "export XDG_RUNTIME_DIR=/run/user/\$(id -u)"
+        echo "export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$(id -u)/bus"
+        echo "# Common Node/NPM Global Path"
+        echo "export PATH=\"\$HOME/.npm-global/bin:\$HOME/.local/bin:\$PATH\""
+        echo "# Restrictive umask: new files=640, new dirs=750"
+        echo "umask 027"
+    } | run_sudo tee -a "$USER_HOME/.bashrc" > /dev/null
+    log_success "Systemd user environment + umask 027 injected into $USER_HOME/.bashrc"
+    # --- END SYSTEMCTL FIX ---
+
+    # Setup SSH directory
     run_sudo mkdir -p "$USER_HOME/.ssh"
     run_sudo chmod 700 "$USER_HOME/.ssh"
     
@@ -273,23 +300,30 @@ kernel_hardening() {
 # IP Forwarding
 net.ipv4.ip_forward = 0
 
-# Syn flood protection
+# SYN flood protection + DoS tuning
 net.ipv4.tcp_syncookies = 1
 net.ipv4.tcp_syn_retries = 2
 net.ipv4.tcp_synack_retries = 2
-net.ipv4.tcp_max_syn_backlog = 4096
+net.ipv4.tcp_max_syn_backlog = 65535
+net.core.somaxconn = 65535
 
 # IP spoofing protection
 net.ipv4.conf.all.rp_filter = 1
 net.ipv4.conf.default.rp_filter = 1
 
-# Ignore ICMP redirects
+# Disable IP source routing
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+
+# Ignore ICMP redirects (IPv4 + IPv6)
 net.ipv4.conf.all.accept_redirects = 0
 net.ipv4.conf.default.accept_redirects = 0
 net.ipv4.conf.all.secure_redirects = 0
 net.ipv4.conf.default.secure_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
 
-# Ignore ICMP requests
+# Ignore ICMP broadcast requests
 net.ipv4.icmp_echo_ignore_broadcasts = 1
 net.ipv4.icmp_ignore_bogus_error_responses = 1
 
@@ -302,8 +336,14 @@ kernel.kptr_restrict = 2
 kernel.dmesg_restrict = 1
 kernel.unprivileged_bpf_disabled = 1
 net.core.bpf_jit_harden = 2
+
+# ASLR - Full address space randomization (anti exploit)
+kernel.randomize_va_space = 2
+
+# Disable core dumps (prevent credential leaks in dump files)
+fs.suid_dumpable = 0
 EOF
-    
+
     run_sudo sysctl -p /etc/sysctl.d/99-security.conf >/dev/null
     
     log_success "Kernel hardened"
@@ -336,6 +376,7 @@ UsePAM yes
 # Security
 X11Forwarding no
 PrintMotd no
+PrintLastLog no
 PermitUserEnvironment no
 AllowTcpForwarding no
 AllowAgentForwarding no
@@ -438,18 +479,33 @@ configure_fail2ban() {
     
     # Generate fail2ban config with expanded variables
     FAIL2BAN_CONFIG="[DEFAULT]
-bantime = 3600
+bantime = 86400
 findtime = 600
 maxretry = 3
 destemail = root@localhost
 sendername = Fail2Ban
 action = %(action_mw)s
 
+# SQLite persistent DB - bans survive fail2ban restarts
+dbfile = /var/lib/fail2ban/fail2ban.sqlite3
+dbpurgeage = 86400
+
 [sshd]
 enabled = true
 port = $SSH_PORT
 logpath = $SSH_LOG_PATH
-maxretry = 3"
+maxretry = 3
+bantime = 86400
+
+# Recidivists: 2nd offence within 24h = 7 day ban
+[sshd-recidivists]
+enabled = true
+filter = sshd
+port = $SSH_PORT
+logpath = $SSH_LOG_PATH
+maxretry = 1
+findtime = 86400
+bantime = 604800"
     
     # Write fail2ban config with sudo
     echo "$FAIL2BAN_CONFIG" | run_sudo tee /etc/fail2ban/jail.local > /dev/null
@@ -457,7 +513,7 @@ maxretry = 3"
     service_restart fail2ban
     service_enable fail2ban
     
-    log_success "Fail2ban configured"
+    log_success "Fail2ban configured (SQLite persistent, 24h SSH ban, recidivists jail)"
 }
 
 # Configure audit logs
@@ -473,20 +529,35 @@ configure_audit() {
 # Monitor SSH configuration
 -w /etc/ssh/sshd_config -p warx -k sshd_config
 
-# Monitor sudo usage
+# Monitor sudo usage + sudoers changes
 -w /etc/sudoers -p wa -k sudoers
+-w /etc/sudoers.d/ -p wa -k sudoers
 -w /var/log/sudo.log -p wa -k sudo_log
+
+# Monitor privilege escalation binaries (sudo, su)
+-w /usr/bin/sudo -p x -k privilege_escalation
+-w /bin/su -p x -k privilege_escalation
+
+# Monitor cron (common persistence attack vector)
+-w /etc/cron.d/ -p wa -k cron
+-w /etc/crontab -p wa -k cron
+-w /var/spool/cron/ -p wa -k cron
+
+# Monitor kernel module loading (rootkit detection)
+-w /sbin/insmod -p x -k kernel_modules
+-w /sbin/rmmod -p x -k kernel_modules
+-w /sbin/modprobe -p x -k kernel_modules
 
 # Monitor network configuration
 -w /etc/network/ -p wa -k network
 
-# Monitor system calls
+# Monitor system calls (execve)
 -a always,exit -F arch=b64 -S execve -k exec
 EOF
-    
+
     run_sudo systemctl restart auditd
     
-    log_success "Audit logging configured"
+    log_success "Audit logging configured (identity, SSH, sudo escalation, cron, kernel modules)"
 }
 
 # Configure automatic updates
@@ -546,19 +617,42 @@ EOF
 final_checks() {
     log_step "Step 11: Final Verification"
     
-    # Check services
-    local services=("ssh" "ufw" "fail2ban" "auditd")
+    # SSH - detect correct service name per distro
+    local SSH_SVC
+    SSH_SVC=$(get_ssh_service_name)
+    if systemctl is-active --quiet "$SSH_SVC" 2>/dev/null; then
+        log_success "SSH ($SSH_SVC) is running on port $SSH_PORT"
+    else
+        log_warn "SSH ($SSH_SVC) is NOT running!"
+    fi
+
+    # Core security services
+    local services=("fail2ban" "auditd")
     for service in "${services[@]}"; do
-        if systemctl is-active --quiet "$service"; then
+        if systemctl is-active --quiet "$service" 2>/dev/null; then
             log_success "$service is running"
         else
-            log_warn "$service is not running"
+            log_warn "$service is NOT running"
         fi
     done
     
-    # Check firewall rules
-    log_info "Firewall status:"
-    run_sudo ufw status numbered
+    # Firewall status - supports both UFW (Debian) and firewalld (RHEL)
+    if systemctl is-active --quiet ufw 2>/dev/null; then
+        log_info "Firewall (UFW) status:"
+        run_sudo ufw status numbered
+    elif systemctl is-active --quiet firewalld 2>/dev/null; then
+        log_info "Firewall (firewalld) status:"
+        run_sudo firewall-cmd --list-all
+    else
+        log_warn "No active firewall detected!"
+    fi
+
+    # AppArmor status (Debian/Ubuntu only)
+    if is_debian_based && systemctl is-active --quiet apparmor 2>/dev/null; then
+        log_success "AppArmor is active"
+    elif is_debian_based; then
+        log_warn "AppArmor is NOT running"
+    fi
 }
 
 # Main execution
@@ -618,6 +712,8 @@ main() {
     configure_audit
     configure_auto_updates
     set_motd
+    configure_sudo_security   # Step 12: sudo hardening (Debian/Ubuntu)
+    enable_apparmor           # Step 13: AppArmor MAC (Debian/Ubuntu)
     final_checks
     
     echo ""

@@ -12,6 +12,7 @@ source "${SCRIPT_DIR}/lib/utils.sh"
 source "${SCRIPT_DIR}/lib/os-detect.sh"
 source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/docker.sh"
+source "${SCRIPT_DIR}/lib/preflight.sh"
 
 APP_NAME="mongodb"
 CONTAINER_NAME="mongodb"
@@ -33,12 +34,17 @@ cleanup_on_error() {
         log_error "Installation aborted. You can retry by running this script again."
     fi
 }
-trap 'INSTALL_FAILED=true; cleanup_on_error' ERR
+trap 'INSTALL_FAILED=true; cleanup_on_error' ERR INT TERM
 
 log_info "═══════════════════════════════════════════"
 log_info "  Installing MongoDB Database"
 log_info "═══════════════════════════════════════════"
 echo ""
+
+audit_log "INSTALL_START" "$APP_NAME"
+
+# Pre-flight checks
+preflight_check "$APP_NAME" 5 2 "27017"
 
 # Check dependency
 log_step "Step 1: Checking dependencies"
@@ -137,7 +143,7 @@ run_sudo docker run -d \
     -e MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" \
     -v "${DATA_DIR}/data:/data/db" \
     -v "${DATA_DIR}/configdb:/data/configdb" \
-    -p 27017:27017 \
+    -p 127.0.0.1:27017:27017 \
     mongo:7.0.5
 
 log_success "MongoDB container started"
@@ -260,3 +266,4 @@ display_connection_info "$APP_NAME"
 EXAMPLE
 
 echo ""
+audit_log "INSTALL_COMPLETE" "$APP_NAME" "Container: $CONTAINER_NAME, Port: 127.0.0.1:27017, DB: $MONGO_DB_NAME"

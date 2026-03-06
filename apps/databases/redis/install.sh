@@ -11,16 +11,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 source "${SCRIPT_DIR}/lib/utils.sh"
 source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/os-detect.sh"
+source "${SCRIPT_DIR}/lib/preflight.sh"
 
 APP_NAME="redis"
 CONF_FILE="/etc/redis/redis.conf"
 DATA_DIR="/var/lib/redis"
 LOG_FILE="/var/log/redis/redis-server.log"
 
+# Guard: require Debian/Ubuntu (native install — redis-server package)
+require_debian
+
+# Cleanup on error
+INSTALL_FAILED=false
+cleanup_on_error() {
+    if [ "$INSTALL_FAILED" = true ]; then
+        log_error "Redis installation failed."
+        audit_log "INSTALL_FAILED" "$APP_NAME" "Check config: $CONF_FILE"
+    fi
+}
+trap 'INSTALL_FAILED=true; cleanup_on_error' ERR INT TERM
+
 log_info "═══════════════════════════════════════════"
 log_info "  Installing Redis Cache/Database (Native)"
 log_info "═══════════════════════════════════════════"
 echo ""
+
+audit_log "INSTALL_START" "$APP_NAME"
 
 # Detect OS
 log_step "Step 1: Detecting operating system"
@@ -498,6 +514,7 @@ echo "  redis-cli -a PASSWORD save"
 echo "  sudo cp $DATA_DIR/dump.rdb /backup/location/"
 echo ""
 echo "  # Scheduled backup with cron:"
-echo "  0 2 * * * redis-cli -a PASSWORD save && cp $DATA_DIR/dump.rdb /backup/redis-\$(date +\\%Y\\%m\\%d).rdb"
+echo "  0 2 * * * redis-cli -a PASSWORD save && cp $DATA_DIR/dump.rdb /backup/redis-\$(date +\%Y\%m\%d).rdb"
 echo ""
 
+audit_log "INSTALL_COMPLETE" "$APP_NAME" "Native install, service: ${SERVICE_NAME:-redis-server}, config: $CONF_FILE"

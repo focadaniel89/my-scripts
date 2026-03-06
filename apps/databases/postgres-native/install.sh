@@ -11,14 +11,30 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 source "${SCRIPT_DIR}/lib/utils.sh"
 source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/os-detect.sh"
+source "${SCRIPT_DIR}/lib/preflight.sh"
 
 APP_NAME="postgres-native"
 SERVICE_NAME="postgresql"
+
+# Guard: require Debian/Ubuntu (native install)
+require_debian
+
+# Cleanup on error
+INSTALL_FAILED=false
+cleanup_on_error() {
+    if [ "$INSTALL_FAILED" = true ]; then
+        log_error "PostgreSQL (native) installation failed."
+        audit_log "INSTALL_FAILED" "$APP_NAME" "Check service: systemctl status $SERVICE_NAME"
+    fi
+}
+trap 'INSTALL_FAILED=true; cleanup_on_error' ERR INT TERM
 
 log_info "═══════════════════════════════════════════"
 log_info "  Installing PostgreSQL (Native)"
 log_info "═══════════════════════════════════════════"
 echo ""
+
+audit_log "INSTALL_START" "$APP_NAME"
 
 # Detect OS
 log_step "Step 1: Detecting operating system"
@@ -140,3 +156,5 @@ echo "  User: $POSTGRES_USER"
 echo "  Service: sudo systemctl status $SERVICE_NAME"
 echo "  Config: $PG_CONF_FILE"
 echo ""
+
+audit_log "INSTALL_COMPLETE" "$APP_NAME" "Service: $SERVICE_NAME, Port: 5432, User: $POSTGRES_USER"

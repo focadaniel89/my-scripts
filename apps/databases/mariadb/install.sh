@@ -12,6 +12,7 @@ source "${SCRIPT_DIR}/lib/utils.sh"
 source "${SCRIPT_DIR}/lib/os-detect.sh"
 source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/docker.sh"
+source "${SCRIPT_DIR}/lib/preflight.sh"
 
 APP_NAME="mariadb"
 CONTAINER_NAME="mariadb"
@@ -33,14 +34,17 @@ cleanup_on_error() {
         log_error "Installation aborted. You can retry by running this script again."
     fi
 }
-trap 'INSTALL_FAILED=true; cleanup_on_error' ERR
+trap 'INSTALL_FAILED=true; cleanup_on_error' ERR INT TERM
 
 log_info "═══════════════════════════════════════════"
 log_info "  Installing MariaDB Database"
 log_info "═══════════════════════════════════════════"
 echo ""
 
-# Check dependency
+audit_log "INSTALL_START" "$APP_NAME"
+
+# Pre-flight checks
+preflight_check "$APP_NAME" 5 2 "3306"
 log_step "Step 1: Checking dependencies"
 if ! check_docker; then
     log_error "Docker is not installed"
@@ -133,7 +137,7 @@ run_sudo docker run -d \
     -e MARIADB_USER="$MARIADB_USER" \
     -e MARIADB_PASSWORD="$MARIADB_PASSWORD" \
     -v "${DATA_DIR}/data:/var/lib/mysql" \
-    -p 3306:3306 \
+    -p 127.0.0.1:3306:3306 \
     mariadb:11.2
 
 log_success "MariaDB container started"
@@ -236,3 +240,4 @@ display_connection_info "$APP_NAME"
 EXAMPLE
 
 echo ""
+audit_log "INSTALL_COMPLETE" "$APP_NAME" "Container: $CONTAINER_NAME, Port: 127.0.0.1:3306, DB: $MARIADB_DATABASE"

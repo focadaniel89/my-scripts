@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# ==============================================================================
+# PROMETHEUS METRICS MONITORING INSTALLATION
+# Deploys Prometheus for metrics collection and monitoring
+# ==============================================================================
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -7,22 +12,35 @@ source "${SCRIPT_DIR}/lib/utils.sh"
 source "${SCRIPT_DIR}/lib/os-detect.sh"
 source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/docker.sh"
-
-# ==============================================================================
-# PROMETHEUS METRICS MONITORING INSTALLATION
-# Deploys Prometheus for metrics collection and monitoring
-# ==============================================================================
+source "${SCRIPT_DIR}/lib/preflight.sh"
 
 APP_NAME="prometheus"
 CONTAINER_NAME="prometheus"
 DATA_DIR="/opt/monitoring/prometheus"
+
+# Cleanup on error
+INSTALL_FAILED=false
+cleanup_on_error() {
+    if [ "$INSTALL_FAILED" = true ]; then
+        log_error "Installation failed, cleaning up..."
+        if run_sudo docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$" 2>/dev/null; then
+            log_info "Removing failed container: $CONTAINER_NAME"
+            run_sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+        fi
+        audit_log "INSTALL_FAILED" "$APP_NAME" "Cleanup completed"
+    fi
+}
+trap 'INSTALL_FAILED=true; cleanup_on_error' ERR INT TERM
 
 log_info "═══════════════════════════════════════════"
 log_info "  Installing Prometheus Monitoring"
 log_info "═══════════════════════════════════════════"
 echo ""
 
-# Check dependency
+audit_log "INSTALL_START" "$APP_NAME"
+
+# Pre-flight checks
+preflight_check "$APP_NAME" 2 1 "9090"
 log_step "Step 1: Checking dependencies"
 if ! check_docker; then
     log_error "Docker is not installed"
@@ -156,7 +174,7 @@ run_sudo docker run -d \
     -v "${DATA_DIR}/config:/etc/prometheus" \
     -v "${DATA_DIR}/rules:/etc/prometheus/rules" \
     -v "${DATA_DIR}/data:/prometheus" \
-    -p 9090:9090 \
+    -p 127.0.0.1:9090:9090 \
     --health-cmd="wget --no-verbose --tries=1 --spider http://localhost:9090/-/healthy || exit 1" \
     --health-interval=30s \
     --health-timeout=10s \
@@ -184,7 +202,7 @@ echo ""
 
 # Verify container health
 log_step "Step 7: Verifying installation"
-if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+if run_sudo docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     log_success "Prometheus is running and healthy"
 else
     log_error "Prometheus container is not running"
@@ -200,7 +218,8 @@ save_secret "$APP_NAME" "PROMETHEUS_URL" "http://$(hostname -I | awk '{print $1}
 log_success "═══════════════════════════════════════════"
 log_success "  Prometheus Installation Complete!"
 log_success "═══════════════════════════════════════════"
-echo ""
+audit_log "INSTALL_COMPLETE" "$APP_NAME" "Container: $CONTAINER_NAME, Port: 127.0.0.1:9090"
+log_warn "⚠ Prometheus is bound to 127.0.0.1:9090 (localhost only). Use SSH tunnel or Nginx reverse proxy for external access."
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 

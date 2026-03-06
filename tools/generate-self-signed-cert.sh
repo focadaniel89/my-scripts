@@ -6,6 +6,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/lib/utils.sh"
+source "${SCRIPT_DIR}/lib/os-detect.sh"
+
+# Guard: Debian/Ubuntu (paths /etc/ssl, openssl package)
+require_debian
+
+# Trap
+CERT_FAILED=false
+cleanup_on_error() {
+    if [ "$CERT_FAILED" = true ]; then
+        log_error "Certificate generation failed."
+        audit_log "CERT_FAILED" "generate-self-signed-cert" "Domain: ${DOMAIN:-unknown}"
+    fi
+}
+trap 'CERT_FAILED=true; cleanup_on_error' ERR INT TERM
 
 # Check arguments
 if [ $# -lt 1 ]; then
@@ -69,3 +83,4 @@ echo ""
 log_warn "IMPORTANT: Configure Cloudflare SSL mode to 'Full' (not 'Full Strict')"
 log_warn "Cloudflare Dashboard → SSL/TLS → Overview → Full"
 echo ""
+audit_log "CERT_GENERATED" "generate-self-signed-cert" "Domain: $DOMAIN, Key: $KEY_FILE"

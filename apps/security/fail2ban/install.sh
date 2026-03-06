@@ -3,6 +3,7 @@
 # ==============================================================================
 # FAIL2BAN INTRUSION PREVENTION
 # Automatic IP banning based on failed authentication attempts
+# Native install — Debian/Ubuntu only
 # ==============================================================================
 
 set -euo pipefail
@@ -11,13 +12,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 source "${SCRIPT_DIR}/lib/utils.sh"
 source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/os-detect.sh"
+source "${SCRIPT_DIR}/lib/preflight.sh"
 
 APP_NAME="fail2ban"
+
+# Guard: require Debian/Ubuntu (native install)
+require_debian
+
+# Cleanup on error
+INSTALL_FAILED=false
+cleanup_on_error() {
+    if [ "$INSTALL_FAILED" = true ]; then
+        log_error "Installation failed, cleaning up..."
+        audit_log "INSTALL_FAILED" "$APP_NAME" "Cleanup completed"
+    fi
+}
+trap 'INSTALL_FAILED=true; cleanup_on_error' ERR INT TERM
 
 log_info "═══════════════════════════════════════════"
 log_info "  Installing Fail2ban Intrusion Prevention"
 log_info "═══════════════════════════════════════════"
 echo ""
+
+audit_log "INSTALL_START" "$APP_NAME"
 
 # Detect OS
 log_step "Step 1: Detecting operating system"
@@ -247,4 +264,4 @@ echo "  destemail = admin@yourdomain.com"
 echo "  action = %(action_mwl)s"
 echo ""
 
-
+audit_log "INSTALL_COMPLETE" "$APP_NAME" "SSH/Nginx/Docker jails active"

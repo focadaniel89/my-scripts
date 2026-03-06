@@ -337,8 +337,7 @@ log_step "Step 7: Creating Docker Compose configuration"
 COMPOSE_FILE_CREATED=true
 
 # Generate docker-compose content with expanded variables
-DOCKER_COMPOSE_CONTENT="version: '3.8'
-
+DOCKER_COMPOSE_CONTENT="
 services:
   n8n:
     image: n8nio/n8n:1.76.0

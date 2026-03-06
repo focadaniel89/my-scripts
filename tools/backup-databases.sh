@@ -14,6 +14,16 @@ source "${SCRIPT_DIR}/lib/secrets.sh"
 BACKUP_ROOT="/opt/backups"
 RETENTION_DAYS=${RETENTION_DAYS:-7}
 
+# Trap for unexpected errors
+BACKUP_FAILED=false
+cleanup_on_error() {
+    if [ "$BACKUP_FAILED" = true ]; then
+        log_error "Database backup encountered an error."
+        audit_log "BACKUP_FAILED" "backup-databases" "Check: $BACKUP_ROOT"
+    fi
+}
+trap 'BACKUP_FAILED=true; cleanup_on_error' ERR INT TERM
+
 init_backup_dirs() {
     local dirs=("${BACKUP_ROOT}/postgres" "${BACKUP_ROOT}/mariadb" "${BACKUP_ROOT}/mongodb")
     
@@ -28,7 +38,7 @@ init_backup_dirs() {
 backup_postgres() {
     log_info "Backing up PostgreSQL databases..."
     
-    if ! docker ps --format '{{.Names}}' | grep -q '^postgres$'; then
+    if ! run_sudo docker ps --format '{{.Names}}' | grep -q '^postgres$'; then
         log_warn "PostgreSQL container not running"
         return 1
     fi
@@ -68,7 +78,7 @@ backup_postgres() {
 backup_mariadb() {
     log_info "Backing up MariaDB databases..."
     
-    if ! docker ps --format '{{.Names}}' | grep -q '^mariadb$'; then
+    if ! run_sudo docker ps --format '{{.Names}}' | grep -q '^mariadb$'; then
         log_warn "MariaDB container not running"
         return 1
     fi
@@ -108,7 +118,7 @@ backup_mariadb() {
 backup_mongodb() {
     log_info "Backing up MongoDB databases..."
     
-    if ! docker ps --format '{{.Names}}' | grep -q '^mongodb$'; then
+    if ! run_sudo docker ps --format '{{.Names}}' | grep -q '^mongodb$'; then
         log_warn "MongoDB container not running"
         return 1
     fi

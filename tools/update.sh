@@ -12,6 +12,16 @@ source "${SCRIPT_DIR}/lib/utils.sh"
 source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/docker.sh"
 
+# Trap for unexpected errors
+UPDATE_FAILED=false
+cleanup_on_error() {
+    if [ "$UPDATE_FAILED" = true ]; then
+        log_error "Update encountered an error. Containers may need manual inspection."
+        audit_log "UPDATE_FAILED" "update" "Check running containers: docker ps -a"
+    fi
+}
+trap 'UPDATE_FAILED=true; cleanup_on_error' ERR INT TERM
+
 # Get app directory from container name
 get_app_dir() {
     local container=$1
@@ -41,13 +51,13 @@ update_container() {
     echo ""
     
     # Check if container exists
-    if ! docker ps -a --format '{{.Names}}' | grep -q "^${container}$"; then
+    if ! run_sudo docker ps -a --format '{{.Names}}' | grep -q "^${container}$"; then
         log_error "Container $container not found"
         return 1
     fi
     
     # Get current image
-    local current_image=$(docker inspect --format='{{.Config.Image}}' "$container")
+    local current_image=$(run_sudo docker inspect --format='{{.Config.Image}}' "$container")
     log_info "Current image: $current_image"
     
     # Get app directory
@@ -92,8 +102,8 @@ update_container() {
     log_step "Step 4: Verifying update"
     sleep 5
     
-    if docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
-        local new_image=$(docker inspect --format='{{.Config.Image}}' "$container")
+    if run_sudo docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
+        local new_image=$(run_sudo docker inspect --format='{{.Config.Image}}' "$container")
         log_success "Container updated successfully"
         log_info "New image: $new_image"
         
@@ -140,12 +150,12 @@ list_containers() {
     log_info "Installed Docker containers:"
     echo ""
     
-    if ! docker ps --format '{{.Names}}' &> /dev/null; then
+    if ! run_sudo docker ps --format '{{.Names}}' &> /dev/null; then
         log_error "Docker is not running"
         return 1
     fi
     
-    local containers=$(docker ps -a --format '{{.Names}}')
+    local containers=$(run_sudo docker ps -a --format '{{.Names}}')
     
     if [ -z "$containers" ]; then
         echo "  No containers found"
@@ -156,8 +166,8 @@ list_containers() {
     printf "  %-20s %-40s %-15s\n" "----" "-----" "------"
     
     while IFS= read -r container; do
-        local image=$(docker inspect --format='{{.Config.Image}}' "$container" 2>/dev/null || echo "unknown")
-        local status=$(docker inspect --format='{{.State.Status}}' "$container" 2>/dev/null || echo "unknown")
+        local image=$(run_sudo docker inspect --format='{{.Config.Image}}' "$container" 2>/dev/null || echo "unknown")
+        local status=$(run_sudo docker inspect --format='{{.State.Status}}' "$container" 2>/dev/null || echo "unknown")
         
         printf "  %-20s %-40s %-15s\n" "$container" "$image" "$status"
     done <<< "$containers"
@@ -170,7 +180,7 @@ update_all() {
     log_info "Updating all containers..."
     echo ""
     
-    local containers=$(docker ps --format '{{.Names}}')
+    local containers=$(run_sudo docker ps --format '{{.Names}}')
     
     if [ -z "$containers" ]; then
         log_warn "No running containers to update"

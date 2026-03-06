@@ -19,6 +19,20 @@ CONTAINER_NAME="ollama"
 DATA_DIR="/opt/ai/ollama"
 NETWORK="vps_network"
 
+# Cleanup on error
+INSTALL_FAILED=false
+cleanup_on_error() {
+    if [ "$INSTALL_FAILED" = true ]; then
+        log_error "Installation failed, cleaning up..."
+        if run_sudo docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$" 2>/dev/null; then
+            log_info "Removing failed container: $CONTAINER_NAME"
+            run_sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+        fi
+        audit_log "INSTALL_FAILED" "$APP_NAME" "Cleanup completed"
+    fi
+}
+trap 'INSTALL_FAILED=true; cleanup_on_error' ERR INT TERM
+
 log_info "═══════════════════════════════════════════"
 log_info "  Installing Ollama LLM Runtime"
 log_info "═══════════════════════════════════════════"
@@ -67,26 +81,24 @@ echo ""
 log_step "Step 3: Creating Docker Compose configuration"
 
 run_sudo tee "$DATA_DIR/docker-compose.yml" > /dev/null << 'EOF'
-version: '3.8'
-
 services:
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
     restart: unless-stopped
-    
-    # Internal access only (containers can reach via ollama:11434)
-    # Optional: Uncomment for localhost access
+
+    # Internal access only — containers reach via ollama:11434
+    # Uncomment below for localhost access:
     # ports:
     #   - "127.0.0.1:11434:11434"
-    
+
     environment:
       - OLLAMA_MODELS=/root/.ollama/models
       - OLLAMA_HOST=0.0.0.0:11434
-      
+
     volumes:
       - /opt/ai/ollama/models:/root/.ollama/models
-      
+
     healthcheck:
       test: ["CMD-SHELL", "ollama list || exit 1"]
       interval: 30s
@@ -146,7 +158,7 @@ echo ""
 log_success "═══════════════════════════════════════════"
 log_success "  Ollama Installation Complete!"
 log_success "═══════════════════════════════════════════"
-audit_log "INSTALL_COMPLETE" "$APP_NAME" "Standalone container, connected to n8n_network if available"
+audit_log "INSTALL_COMPLETE" "$APP_NAME" "Container: $CONTAINER_NAME, Network: $NETWORK"
 echo ""
 
 log_info "Access Information:"

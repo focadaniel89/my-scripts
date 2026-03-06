@@ -202,3 +202,28 @@ preflight_check_silent() {
         log_warn "System resources may be insufficient for $app_name"
     fi
 }
+
+# Minimal startup check for orchestrator (no prompt, just warnings)
+# Verifies: bash version, OS, internet
+preflight_startup() {
+    local ok=true
+
+    # Bash version
+    if ! check_min_bash_version 4; then
+        log_error "Bash 4+ required. Upgrade bash and retry."
+        ok=false
+    fi
+
+    # OS advisory
+    require_debian
+
+    # Internet connectivity
+    if ! check_internet; then
+        log_warn "Internet not reachable — some installers may fail."
+    fi
+
+    $ok && return 0 || return 1
+}
+
+export -f preflight_check preflight_check_silent preflight_startup check_internet
+

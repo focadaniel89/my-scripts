@@ -102,7 +102,7 @@ run_sudo docker run -d \
     --restart unless-stopped \
     --network "$NETWORK" \
     --hostname "$(hostname)" \
-    -p 19999:19999 \
+    -p 127.0.0.1:19999:19999 \
     --cap-add SYS_PTRACE \
     --cap-add SYS_ADMIN \
     --security-opt apparmor=unconfined \

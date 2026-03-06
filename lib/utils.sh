@@ -102,7 +102,49 @@ confirm_action() {
     fi
 }
 
-# --- SERVICE MANAGEMENT ---
+# --- UTILITY GUARDS ---
+
+# Warn (not block) if not running on Debian/Ubuntu.
+# Call require_debian() at top of Debian-specific scripts for a clear message.
+require_debian() {
+    if ! is_debian_based 2>/dev/null; then
+        log_warn "This script is designed for Debian/Ubuntu."
+        log_warn "Current OS may not be fully supported. Continuing anyway..."
+    fi
+}
+
+# Check minimum bash version (we use bash 4 features: associative arrays, etc.)
+check_min_bash_version() {
+    local required_major=${1:-4}
+    local actual_major="${BASH_VERSINFO[0]}"
+    if [ "$actual_major" -lt "$required_major" ]; then
+        log_error "Bash $required_major+ required. Current: $BASH_VERSION"
+        return 1
+    fi
+    return 0
+}
+
+# Check internet connectivity (3-second timeout)
+check_internet() {
+    if ping -c 1 -W 3 8.8.8.8 &>/dev/null 2>&1 || \
+       curl -s --max-time 3 https://google.com &>/dev/null 2>&1; then
+        return 0
+    fi
+    log_warn "No internet connectivity detected"
+    return 1
+}
+
+# Return correct SSH service name for current distro
+# Debian/Ubuntu: ssh  |  RHEL/Fedora: sshd
+get_ssh_service_name() {
+    if is_debian_based 2>/dev/null; then
+        echo "ssh"
+    else
+        echo "sshd"
+    fi
+}
+
+
 # Ensure service is running, start if needed
 # Args: $1 = service_name, $2 = friendly_name (optional)
 ensure_service_running() {
@@ -464,6 +506,67 @@ register_cleanup() {
     trap cleanup_temp_files EXIT
 }
 
+# --- SECURITY HARDENING UTILITIES (Debian/Ubuntu) ---
+
+# Harden sudo: 5-min password timeout + full command logging
+configure_sudo_security() {
+    if ! is_debian_based 2>/dev/null; then
+        log_warn "configure_sudo_security: Debian/Ubuntu only, skipping"
+        return 0
+    fi
+
+    log_info "Hardening sudo configuration..."
+
+    run_sudo bash -c "cat > /etc/sudoers.d/99-hardening" <<'EOF'
+# Re-ask password every 5 minutes (default is 15)
+Defaults timestamp_timeout=5
+
+# Log all sudo commands (I/O capture)
+Defaults logfile=/var/log/sudo.log
+Defaults log_input,log_output
+
+# Prevent PATH hijacking
+Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EOF
+    run_sudo chmod 440 /etc/sudoers.d/99-hardening
+
+    # Weekly log rotation to avoid disk fill
+    run_sudo bash -c "cat > /etc/logrotate.d/sudo-log" <<'EOF'
+/var/log/sudo.log {
+    weekly
+    rotate 12
+    compress
+    missingok
+    notifempty
+}
+EOF
+    log_success "sudo hardened: 5-min timeout + logging → /var/log/sudo.log"
+}
+
+# Enable AppArmor and enforce all shipped profiles (Debian/Ubuntu)
+enable_apparmor() {
+    if ! is_debian_based 2>/dev/null; then
+        log_warn "enable_apparmor: Debian/Ubuntu only, skipping"
+        return 0
+    fi
+
+    log_info "Configuring AppArmor..."
+
+    if ! dpkg -l apparmor &>/dev/null 2>&1; then
+        pkg_install apparmor apparmor-utils apparmor-profiles apparmor-profiles-extra
+    fi
+
+    run_sudo systemctl enable apparmor
+    run_sudo systemctl start apparmor
+
+    if command -v aa-enforce &>/dev/null; then
+        run_sudo aa-enforce /etc/apparmor.d/* 2>/dev/null || true
+        log_success "AppArmor enabled — profiles set to enforce"
+    else
+        log_warn "aa-enforce not found; AppArmor started but profiles not enforced"
+    fi
+}
+
 # --- INITIALIZATION ---
 # Initialize logging directory
 init_logging() {
@@ -510,3 +613,10 @@ process_template() {
     mv "$temp_file" "$output_file"
     log_info "Template processed: $output_file"
 }
+
+export -f configure_sudo_security
+export -f enable_apparmor
+export -f require_debian
+export -f check_min_bash_version
+export -f check_internet
+export -f get_ssh_service_name

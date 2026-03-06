@@ -1,27 +1,53 @@
 #!/bin/bash
 
-# VPS Orchestrator - Automatic dependency management
+# ==============================================================================
+# VPS ORCHESTRATOR v2.0
+# Debian/Ubuntu focused — automatic dependency management
+# Usage: ./orchestrator.sh [--help]
+# ==============================================================================
+
 set -euo pipefail
 
+VERSION="2.0.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 source "${SCRIPT_DIR}/lib/utils.sh"
 source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/docker.sh"
+source "${SCRIPT_DIR}/lib/preflight.sh"
 
 APPS_CONF="${SCRIPT_DIR}/config/apps.conf"
 
-# Function to read app config from apps.conf
+# --- Help ---
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    echo "VPS Orchestrator v${VERSION}"
+    echo ""
+    echo "Usage: ./orchestrator.sh [--help]"
+    echo ""
+    echo "Interactive menu to install and manage VPS applications."
+    echo "Designed for Debian/Ubuntu. All dependencies are handled automatically."
+    echo ""
+    echo "Options:"
+    echo "  --help, -h    Show this help message"
+    echo ""
+    echo "Environment:"
+    echo "  FORCE_YES=1   Skip all confirmation prompts (automation mode)"
+    echo "  DEBUG=1       Enable verbose debug output"
+    exit 0
+fi
+
+# ──────────────────────────────────────────────────────────────
+# CONFIG READER
+# ──────────────────────────────────────────────────────────────
 get_app_config() {
     local app_name="$1"
     local key="$2"
-    
-    # Read value from apps.conf
+
     awk -v app="$app_name" -v key="$key" '
         /^\[/ { section=$0; gsub(/[\[\]]/, "", section) }
-        section == app && $0 ~ "^"key"=" { 
-            split($0, a, "="); 
+        section == app && $0 ~ "^"key"=" {
+            split($0, a, "=");
             gsub(/^[ \t]+|[ \t]+$/, "", a[2]);
             print a[2];
             exit
@@ -29,478 +55,375 @@ get_app_config() {
     ' "$APPS_CONF"
 }
 
-# Function to check if an app is installed AND running
+# ──────────────────────────────────────────────────────────────
+# INSTALLATION STATE DETECTION
+# ──────────────────────────────────────────────────────────────
 is_app_installed() {
     local app_name="$1"
-    
+
     case "$app_name" in
         docker-engine)
-            if command -v docker &>/dev/null; then
-                if systemctl is-active --quiet docker 2>/dev/null; then
-                     return 0
-                else
-                     # Docker is installed but not active - start it
-                     if [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; then
-                         sudo systemctl start docker &>/dev/null || true
-                         sleep 2
-                         systemctl is-active --quiet docker 2>/dev/null && return 0
-                     fi
-                     return 1
-                fi
-            else
-                return 1
-            fi
+            command -v docker &>/dev/null || return 1
+            systemctl is-active --quiet docker 2>/dev/null && return 0
+            sudo systemctl start docker &>/dev/null 2>&1 || true
+            sleep 2
+            systemctl is-active --quiet docker 2>/dev/null && return 0
+            return 1
             ;;
         nginx)
-            if command -v nginx &>/dev/null; then
-                systemctl is-active --quiet nginx 2>/dev/null && return 0
-                
-                # Try to start
-                if [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; then
-                     sudo systemctl start nginx &>/dev/null || true
-                     sleep 1
-                     systemctl is-active --quiet nginx 2>/dev/null && return 0
-                fi
-                return 1
-            else
-                return 1
-            fi
+            command -v nginx &>/dev/null || return 1
+            systemctl is-active --quiet nginx 2>/dev/null && return 0
+            sudo systemctl start nginx &>/dev/null || true
+            sleep 1
+            systemctl is-active --quiet nginx 2>/dev/null && return 0
+            return 1
             ;;
         postgres)
-            if command -v docker &>/dev/null && systemctl is-active --quiet docker 2>/dev/null; then
-                # Check if container exists first (stopped or running)
-                if run_sudo docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^postgres$"; then
-                    # Container exists, is it running?
-                    if run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^postgres$"; then
-                        return 0
-                    else
-                        # Container exists but stopped - try start
-                        run_sudo docker start postgres &>/dev/null || true
-                        sleep 2
-                        run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^postgres$" && return 0
-                        return 1
-                    fi
-                else
-                    return 1
-                fi
-            else
-                return 1
-            fi
+            command -v docker &>/dev/null && systemctl is-active --quiet docker 2>/dev/null || return 1
+            run_sudo docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^postgres$" || return 1
+            run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^postgres$" && return 0
+            run_sudo docker start postgres &>/dev/null || true
+            sleep 2
+            run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^postgres$" && return 0
+            return 1
             ;;
         redis)
-            # Check if Redis native (host) is installed
             if command -v redis-server &>/dev/null || command -v redis-cli &>/dev/null; then
-                # Package exists, check if service is running
-                if systemctl is-active --quiet redis-server 2>/dev/null || systemctl is-active --quiet redis 2>/dev/null; then
-                    return 0
-                else
-                    # Try to start the service
-                    if [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; then
-                         sudo systemctl start redis-server &>/dev/null || sudo systemctl start redis &>/dev/null || true
-                         sleep 1
-                         if systemctl is-active --quiet redis-server 2>/dev/null || systemctl is-active --quiet redis 2>/dev/null; then
-                             return 0
-                         fi
-                    fi
-                    return 1
-                fi
-            else
-                # Redis not installed
-                return 1
+                systemctl is-active --quiet redis-server 2>/dev/null || \
+                systemctl is-active --quiet redis 2>/dev/null && return 0
+                sudo systemctl start redis-server &>/dev/null || \
+                sudo systemctl start redis &>/dev/null || true
+                sleep 1
+                systemctl is-active --quiet redis-server 2>/dev/null || \
+                systemctl is-active --quiet redis 2>/dev/null && return 0
             fi
+            return 1
             ;;
         redis-docker)
-            # Check if Redis container exists and is running
-            if command -v docker &>/dev/null && systemctl is-active --quiet docker 2>/dev/null; then
-                if run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^redis$"; then
-                    return 0
-                elif run_sudo docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^redis$"; then
-                    # Container exists but stopped - try to start
-                    run_sudo docker start redis &>/dev/null || true
-                    sleep 2
-                    run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^redis$" && return 0
-                    return 1
-                else
-                    return 1
-                fi
-            else
-                return 1
-            fi
+            command -v docker &>/dev/null && systemctl is-active --quiet docker 2>/dev/null || return 1
+            run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^redis$" && return 0
+            run_sudo docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^redis$" || return 1
+            run_sudo docker start redis &>/dev/null || true
+            sleep 2
+            run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^redis$" && return 0
+            return 1
             ;;
         certbot)
             command -v certbot &>/dev/null && return 0 || return 1
             ;;
         *)
-            # For other apps, check if Docker container exists and is running
-            if command -v docker &>/dev/null && systemctl is-active --quiet docker 2>/dev/null; then
-                 if run_sudo docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${app_name}$"; then
-                    if run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${app_name}$"; then
-                        return 0
-                    else
-                        # specific app container stopped - try start
-                        run_sudo docker start "$app_name" &>/dev/null || true
-                        sleep 2
-                        run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${app_name}$" && return 0
-                        return 1
-                    fi
-                 else
-                    return 1
-                 fi
-            else
-                return 1
-            fi
+            command -v docker &>/dev/null && systemctl is-active --quiet docker 2>/dev/null || return 1
+            run_sudo docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${app_name}$" || return 1
+            run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${app_name}$" && return 0
+            run_sudo docker start "$app_name" &>/dev/null || true
+            sleep 2
+            run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${app_name}$" && return 0
+            return 1
             ;;
     esac
 }
 
-# Function to install dependencies recursively
+# ──────────────────────────────────────────────────────────────
+# DEPENDENCY RESOLUTION
+# ──────────────────────────────────────────────────────────────
 install_dependencies() {
     local app_name="$1"
-    local dependencies=$(get_app_config "$app_name" "dependencies")
-    
-    # If no dependencies, return
+    local dependencies
+    dependencies=$(get_app_config "$app_name" "dependencies")
     [ -z "$dependencies" ] && return 0
-    
-    # Split dependencies by comma
+
     IFS=',' read -ra DEPS <<< "$dependencies"
-    
     for dep in "${DEPS[@]}"; do
-        dep=$(echo "$dep" | xargs) # trim whitespace
-        
-        if ! is_app_installed "$dep"; then
-            log_warn "Dependency not installed: $dep"
-            log_info "Application '$app_name' requires '$dep'"
-            log_info "Installing dependency automatically: $dep"
-            echo ""
-            
-            # Find and run dependency installer
-            dep_script=$(find "${SCRIPT_DIR}/apps" -name "$dep" -type d -exec test -f "{}/install.sh" \; -print -quit)
-            
-            if [ -n "$dep_script" ]; then
-                # Install dependency - run script and WAIT for completion
-                log_info "═══════════════════════════════════════════"
-                log_info "  Starting installer: $dep"
-                log_info "═══════════════════════════════════════════"
-                echo ""
-                
-                bash "${dep_script}/install.sh"
-                DEP_EXIT_CODE=$?
-                
-                echo ""
-                log_info "═══════════════════════════════════════════"
-                log_info "  Installer finished: $dep (exit code: $DEP_EXIT_CODE)"
-                log_info "═══════════════════════════════════════════"
-                
-                # Check exit code
-                if [ $DEP_EXIT_CODE -ne 0 ]; then
-                    log_error "Installer exited with error code: $DEP_EXIT_CODE"
-                    log_error "Dependency installation failed: $dep"
-                    
-                    if confirm_action "Continue anyway? (Not recommended)"; then
-                        log_warn "Continuing despite error..."
-                    else
-                        log_error "Installation aborted by user"
-                        return 1
-                    fi
-                fi
-                
-                # Manual verification step
-                echo ""
-                log_info "Please verify the installation completed successfully."
-                log_info "Check the output above for any errors or warnings."
-                echo ""
-                
-                if ! confirm_action "Did '$dep' install successfully? Continue with next dependency?"; then
-                    log_error "Installation stopped by user"
-                    log_info "You can manually run: ${dep_script}/install.sh"
-                    return 1
-                fi
-                
-                log_success "Dependency confirmed: $dep"
-                echo ""
-            else
-                log_error "Cannot find installer for: $dep"
-                log_error "Expected location: apps/*/$dep/install.sh"
-                return 1
-            fi
-        else
+        dep=$(echo "$dep" | xargs)
+        if is_app_installed "$dep"; then
             log_success "✓ Dependency already installed: $dep"
+            continue
         fi
+
+        log_warn "Dependency not installed: $dep — installing automatically"
+        local dep_script
+        dep_script=$(find "${SCRIPT_DIR}/apps" -name "$dep" -type d \
+            -exec test -f "{}/install.sh" \; -print -quit)
+
+        if [ -z "$dep_script" ]; then
+            log_error "Cannot find installer for: $dep (expected: apps/*/$dep/install.sh)"
+            return 1
+        fi
+
+        log_step "Installing dependency: $dep"
+        bash "${dep_script}/install.sh"
+        local exit_code=$?
+
+        if [ $exit_code -ne 0 ]; then
+            log_error "Dependency installer failed with exit code: $exit_code"
+            confirm_action "Continue anyway? (not recommended)" || return 1
+        fi
+
+        confirm_action "Did '$dep' install successfully? Continue?" || {
+            log_info "You can manually run: ${dep_script}/install.sh"
+            return 1
+        }
+        log_success "Dependency confirmed: $dep"
     done
-    
     return 0
 }
 
-# Function to handle optional dependencies (recommended but not required)
 install_optional_dependencies() {
     local app_name="$1"
-    local optional_deps=$(get_app_config "$app_name" "optional_dependencies")
-    
-    # If no optional dependencies, return
+    local optional_deps
+    optional_deps=$(get_app_config "$app_name" "optional_dependencies")
     [ -z "$optional_deps" ] && return 0
-    
-    # Split dependencies by comma
+
     IFS=',' read -ra OPT_DEPS <<< "$optional_deps"
-    
     for opt_dep in "${OPT_DEPS[@]}"; do
-        opt_dep=$(echo "$opt_dep" | xargs) # trim whitespace
-        
-        if ! is_app_installed "$opt_dep"; then
-            log_info "═══════════════════════════════════════════"
-            log_info "  Optional Enhancement Available"
-            log_info "═══════════════════════════════════════════"
-            echo ""
-            
-            # Get description for optional dependency
-            local opt_desc=$(get_app_config "$opt_dep" "description")
-            log_info "Application: $opt_dep"
-            log_info "Description: $opt_desc"
-            log_info "Status: Not installed (optional for $app_name)"
-            echo ""
-            
-            if confirm_action "Install $opt_dep? (Recommended for enhanced functionality)"; then
-                log_info "Installing optional dependency: $opt_dep"
-                echo ""
-                
-                # Find and run optional dependency installer
-                opt_script=$(find "${SCRIPT_DIR}/apps" -name "$opt_dep" -type d -exec test -f "{}/install.sh" \; -print -quit)
-                
-                if [ -n "$opt_script" ]; then
-                    log_info "═══════════════════════════════════════════"
-                    log_info "  Starting installer: $opt_dep"
-                    log_info "═══════════════════════════════════════════"
-                    echo ""
-                    
-                    bash "${opt_script}/install.sh"
-                    OPT_EXIT_CODE=$?
-                    
-                    echo ""
-                    log_info "═══════════════════════════════════════════"
-                    log_info "  Installer finished: $opt_dep (exit code: $OPT_EXIT_CODE)"
-                    log_info "═══════════════════════════════════════════"
-                    
-                    if [ $OPT_EXIT_CODE -ne 0 ]; then
-                        log_warn "Optional dependency installation had issues"
-                        log_info "You can install it later manually if needed"
-                    else
-                        log_success "Optional dependency installed: $opt_dep"
-                    fi
-                    echo ""
-                else
-                    log_error "Cannot find installer for: $opt_dep"
-                fi
-            else
-                log_info "Skipping optional dependency: $opt_dep"
-                log_info "You can install it later: ./orchestrator.sh"
-                echo ""
-            fi
-        else
+        opt_dep=$(echo "$opt_dep" | xargs)
+        if is_app_installed "$opt_dep"; then
             log_success "✓ Optional dependency already installed: $opt_dep"
+            continue
         fi
+
+        local opt_desc
+        opt_desc=$(get_app_config "$opt_dep" "description")
+        log_step "Optional Enhancement Available: $opt_dep"
+        log_info "Description: $opt_desc"
+
+        confirm_action "Install $opt_dep? (recommended for enhanced functionality)" || {
+            log_info "Skipping: $opt_dep — install later with ./orchestrator.sh"
+            continue
+        }
+
+        local opt_script
+        opt_script=$(find "${SCRIPT_DIR}/apps" -name "$opt_dep" -type d \
+            -exec test -f "{}/install.sh" \; -print -quit)
+
+        if [ -z "$opt_script" ]; then
+            log_error "Cannot find installer for: $opt_dep"
+            continue
+        fi
+
+        bash "${opt_script}/install.sh"
+        [ $? -eq 0 ] && log_success "Optional installed: $opt_dep" || \
+            log_warn "Optional install had issues — install later if needed"
     done
-    
     return 0
 }
 
-clear
-echo "=============================================="
-echo "  Instalare Aplicații"
-echo "=============================================="
-echo ""
+# ──────────────────────────────────────────────────────────────
+# MENU BUILDER
+# ──────────────────────────────────────────────────────────────
+show_menu() {
+    clear
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════╗"
+    echo "║           VPS ORCHESTRATOR  v${VERSION}                       ║"
+    echo "║           Debian/Ubuntu · Production Setup               ║"
+    echo "╚═══════════════════════════════════════════════════════════╝"
+    echo ""
 
-# List all available applications
-echo "AVAILABLE APPLICATIONS:"
-echo ""
+    local counter=1
+    declare -ga apps_list=()  # global so run_selection() can read it
 
-counter=1
-declare -a apps_list=()
+    # ── APPLICATIONS by category ──────────────────────────────
+    for category_dir in apps/*/; do
+        local category_name
+        category_name=$(basename "$category_dir")
+        echo "  ┌─ [${category_name}]"
 
-for category in apps/*/; do
-    category_name=$(basename "$category")
-    echo "[$category_name]"
-    
-    for app_dir in "$category"*/; do
-        if [ -d "$app_dir" ] && [ -f "${app_dir}install.sh" ]; then
-            app_name=$(basename "$app_dir")
-            display_name=$(get_app_config "$app_name" "display_name" 2>/dev/null || echo "")
-            [ -z "$display_name" ] && display_name="$app_name"
-            
-            apps_list+=("app:${category_name}/${app_name}")
-            
-            # Show if installed (disable exit on error for this check)
-            # Use subshell to prevent script termination on error
-            # Safely check installation status without breaking on error
-            installed_status="  "
-            if (is_app_installed "$app_name") &>/dev/null; then
-                installed_status="✓ Installed"
+        for app_dir in "${category_dir}"*/; do
+            if [ -d "$app_dir" ] && [ -f "${app_dir}install.sh" ]; then
+                local app_name display_name installed_label
+                app_name=$(basename "$app_dir")
+                display_name=$(get_app_config "$app_name" "display_name" 2>/dev/null || echo "")
+                [ -z "$display_name" ] && display_name="$app_name"
+
+                apps_list+=("app:${category_name}/${app_name}")
+
+                installed_label=""
+                if (is_app_installed "$app_name") &>/dev/null; then
+                    installed_label=" ✓"
+                fi
+
+                printf "  │  %2d) %-38s%s\n" "$counter" "$display_name" "$installed_label"
+                ((counter++))
             fi
-            
-            if [ -n "$installed_status" ] && [ "$installed_status" = "✓ Installed" ]; then
-                printf "   %2d) %-35s [%s]\n" "$counter" "$display_name" "$installed_status"
-            else
-                printf "   %2d) %s\n" "$counter" "$display_name"
+        done
+        echo "  └───────────────────────────────────────────"
+        echo ""
+    done
+
+    # ── WORKFLOWS ─────────────────────────────────────────────
+    if ls workflows/*.sh 1>/dev/null 2>&1; then
+        echo "  ┌─ [workflows]"
+        for wf in workflows/*.sh; do
+            if [ -f "$wf" ]; then
+                local wf_name
+                wf_name=$(basename "$wf" .sh)
+                apps_list+=("workflow:${wf}")
+                printf "  │  %2d) %-38s\n" "$counter" "Run: ${wf_name}"
+                ((counter++))
             fi
+        done
+        echo "  └───────────────────────────────────────────"
+        echo ""
+    fi
+
+    # ── TOOLS ─────────────────────────────────────────────────
+    echo "  ┌─ [tools]"
+    local tool_scripts=("health-check.sh" "update.sh" "backup-databases.sh" "backup-credentials.sh" "generate-self-signed-cert.sh" "setup-dashboard.sh")
+    local tool_labels=("Health Check" "Update All Containers" "Backup Databases" "Backup Credentials" "Generate Self-Signed Cert" "Setup Dashboard")
+    for i in "${!tool_scripts[@]}"; do
+        local tool_path="tools/${tool_scripts[$i]}"
+        if [ -f "${SCRIPT_DIR}/${tool_path}" ]; then
+            apps_list+=("tool:${tool_path}")
+            printf "  │  %2d) %-38s\n" "$counter" "${tool_labels[$i]}"
             ((counter++))
         fi
     done
+    echo "  └───────────────────────────────────────────"
     echo ""
-done
 
-if ls workflows/*.sh 1> /dev/null 2>&1; then
-    echo "[workflows]"
-    for wf in workflows/*.sh; do
-        if [ -f "$wf" ]; then
-            wf_name=$(basename "$wf" .sh)
-            apps_list+=("workflow:${wf}")
-            printf "   %2d) %s\n" "$counter" "Run ${wf_name}"
-            ((counter++))
-        fi
-    done
+    echo "  ─────────────────────────────────────────────"
+    echo "   0) Exit"
+    echo "  ─────────────────────────────────────────────"
     echo ""
-fi
+}
 
-echo "=============================================="
-echo " 0) Exit"
-echo "=============================================="
-echo ""
-read -p "Select application number: " choice
+# ──────────────────────────────────────────────────────────────
+# RUN SELECTED ITEM
+# ──────────────────────────────────────────────────────────────
+run_selection() {
+    local choice="$1"
+    local total="$2"
 
-if [ "$choice" = "0" ]; then
-    echo "Goodbye!"
-    exit 0
-fi
+    if [ "$choice" = "0" ]; then
+        echo ""
+        log_info "Goodbye! 👋"
+        exit 0
+    fi
 
-# Validate that choice is a number
-if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
-    echo "Invalid selection!"
-    exit 1
-fi
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -ge "$total" ]; then
+        log_error "Invalid selection: $choice"
+        return 1
+    fi
 
-if [ "$choice" -ge 1 ] && [ "$choice" -lt "$counter" ]; then
-    selected="${apps_list[$((choice-1))]}"
-    sel_type="${selected%%:*}"
-    sel_val="${selected#*:}"
-    
+    local selected="${apps_list[$((choice-1))]}"
+    local sel_type="${selected%%:*}"
+    local sel_val="${selected#*:}"
+
+    # ── APP ─────────────────────────────────────────────────
     if [ "$sel_type" = "app" ]; then
+        local category app
         category=$(dirname "$sel_val")
         app=$(basename "$sel_val")
-        
+
         echo ""
-        echo "=============================================="
-        echo "Installing: $app"
-        echo "=============================================="
+        log_step "Installing: $app"
+        local desc
+        desc=$(get_app_config "$app" "description" 2>/dev/null || echo "")
+        [ -n "$desc" ] && log_info "Description: $desc"
         echo ""
-        
-        # Check and install dependencies (if any)
-        log_step "Checking dependencies..."
-        
-        # Get dependencies for this app (may be empty)
+
+        # Dependencies
+        local app_deps
         app_deps=$(get_app_config "$app" "dependencies" 2>/dev/null || echo "")
-        
         if [ -n "$app_deps" ]; then
-            log_info "Dependencies found: $app_deps"
-            if install_dependencies "$app"; then
-                log_success "All dependencies satisfied"
-            else
-                log_error "Dependency installation failed"
-                exit 1
-            fi
+            log_info "Checking dependencies: $app_deps"
+            install_dependencies "$app" || { log_error "Dependency installation failed"; return 1; }
+            log_success "All dependencies satisfied"
         else
             log_info "No dependencies required for: $app"
         fi
         echo ""
-        
-        # Run app installer with manual confirmation
-        script_path="${SCRIPT_DIR}/apps/${category}/${app}/install.sh"
-        
-        if [ -f "$script_path" ]; then
-            log_info "═══════════════════════════════════════════"
-            log_info "  Starting installer: $app (main application)"
-            log_info "═══════════════════════════════════════════"
-            echo ""
-            
-            bash "$script_path"
-            APP_EXIT_CODE=$?
-            
-            echo ""
-            log_info "═══════════════════════════════════════════"
-            log_info "  Installer finished: $app (exit code: $APP_EXIT_CODE)"
-            log_info "═══════════════════════════════════════════"
-            
-            # Check exit code
-            if [ $APP_EXIT_CODE -ne 0 ]; then
-                log_error "Installer exited with error code: $APP_EXIT_CODE"
-                log_error "Application installation may have failed: $app"
-                echo ""
-                log_warn "Please review the output above for errors"
-                exit 1
-            fi
-            
-            # Manual verification step
-            echo ""
-            log_info "Please verify the installation completed successfully."
-            log_info "Check the output above for any errors or warnings."
-            echo ""
-            
-            if confirm_action "Did '$app' install successfully?"; then
-                log_success "Installation confirmed by user: $app"
-                echo ""
-                
-                # Check for optional dependencies AFTER main app installation
-                log_step "Checking optional enhancements..."
-                app_opt_deps=$(get_app_config "$app" "optional_dependencies" 2>/dev/null || echo "")
-                
-                if [ -n "$app_opt_deps" ]; then
-                    log_info "Optional enhancements available: $app_opt_deps"
-                    install_optional_dependencies "$app"
-                else
-                    log_info "No optional enhancements for: $app"
-                fi
-                echo ""
-                
-                log_success "═══════════════════════════════════════════"
-                log_success "  Installation Complete: $app"
-                log_success "═══════════════════════════════════════════"
-            else
-                log_warn "Installation not confirmed by user"
-                log_info "You can manually run: $script_path"
-                exit 1
-            fi
-        else
-            echo "ERROR: Install script not found: $script_path"
-            exit 1
+
+        # Main installer
+        local script_path="${SCRIPT_DIR}/apps/${category}/${app}/install.sh"
+        if [ ! -f "$script_path" ]; then
+            log_error "Installer not found: $script_path"
+            return 1
         fi
+
+        log_step "Starting installer: $app"
+        bash "$script_path"
+        local exit_code=$?
+
+        echo ""
+        if [ $exit_code -ne 0 ]; then
+            log_error "Installer exited with code: $exit_code — review output above"
+            return 1
+        fi
+
+        log_info "Please verify the installation completed successfully."
+        if confirm_action "Did '$app' install successfully?"; then
+            log_success "Installation confirmed: $app"
+            echo ""
+
+            # Optional dependencies
+            local app_opt_deps
+            app_opt_deps=$(get_app_config "$app" "optional_dependencies" 2>/dev/null || echo "")
+            if [ -n "$app_opt_deps" ]; then
+                install_optional_dependencies "$app"
+            fi
+
+            log_success "══════════════════════════════════════"
+            log_success "  Done: $app"
+            log_success "══════════════════════════════════════"
+        else
+            log_warn "Installation not confirmed — you can re-run: $script_path"
+        fi
+
+    # ── WORKFLOW ─────────────────────────────────────────────
     elif [ "$sel_type" = "workflow" ]; then
+        local wf_name
         wf_name=$(basename "$sel_val" .sh)
-        echo ""
-        echo "=============================================="
-        echo "Running Workflow: $wf_name"
-        echo "=============================================="
-        echo ""
-        
-        script_path="${SCRIPT_DIR}/${sel_val}"
-        if [ -f "$script_path" ]; then
-            log_info "═══════════════════════════════════════════"
-            log_info "  Starting workflow: $wf_name"
-            log_info "═══════════════════════════════════════════"
-            echo ""
-            
-            bash "$script_path"
-            WF_EXIT_CODE=$?
-            
-            echo ""
-            log_info "═══════════════════════════════════════════"
-            log_info "  Workflow finished: $wf_name (exit code: $WF_EXIT_CODE)"
-            log_info "═══════════════════════════════════════════"
-            
-            echo ""
-            read -p "Press Enter to continue..."
-        else
-            echo "ERROR: Workflow script not found: $script_path"
-            exit 1
+        local script_path="${SCRIPT_DIR}/${sel_val}"
+
+        if [ ! -f "$script_path" ]; then
+            log_error "Workflow not found: $script_path"
+            return 1
         fi
+
+        echo ""
+        log_step "Running workflow: $wf_name"
+        bash "$script_path"
+        local exit_code=$?
+        echo ""
+        log_info "Workflow finished (exit code: $exit_code)"
+        echo ""
+        read -rp "Press Enter to return to menu..."
+
+    # ── TOOL ─────────────────────────────────────────────────
+    elif [ "$sel_type" = "tool" ]; then
+        local tool_name
+        tool_name=$(basename "$sel_val" .sh)
+        local script_path="${SCRIPT_DIR}/${sel_val}"
+
+        if [ ! -f "$script_path" ]; then
+            log_error "Tool not found: $script_path"
+            return 1
+        fi
+
+        echo ""
+        log_step "Running tool: $tool_name"
+        bash "$script_path"
+        echo ""
+        read -rp "Press Enter to return to menu..."
     fi
-else
-    echo "Invalid selection!"
-    exit 1
-fi
+}
+
+# ──────────────────────────────────────────────────────────────
+# STARTUP CHECKS
+# ──────────────────────────────────────────────────────────────
+preflight_startup
+
+# ──────────────────────────────────────────────────────────────
+# MAIN LOOP
+# ──────────────────────────────────────────────────────────────
+while true; do
+    show_menu
+    local_counter="${#apps_list[@]}"
+    read -rp "Select [0-$((local_counter))]: " choice
+    run_selection "$choice" "$((local_counter + 1))" || {
+        echo ""
+        read -rp "Press Enter to continue..."
+    }
+done
