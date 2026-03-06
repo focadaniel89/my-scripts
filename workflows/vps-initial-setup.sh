@@ -664,7 +664,7 @@ main() {
     fi
     
     # Check if running over SSH - DANGEROUS!
-    if [ -n "$SSH_CONNECTION" ] || [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ]; then
+    if [ -n "${SSH_CONNECTION:-}" ] || [ -n "${SSH_CLIENT:-}" ] || [ -n "${SSH_TTY:-}" ]; then
         echo ""
         log_error "═══════════════════════════════════════════════════════════"
         log_error "  DANGER: This script is being run over SSH!"
@@ -746,7 +746,7 @@ main() {
     echo "  4. You can only login as: $NEW_USER"
     echo ""
     
-    if [ -n "$SSH_CONNECTION" ]; then
+    if [ -n "${SSH_CONNECTION:-}" ]; then
         log_error "YOU ARE CONNECTED VIA SSH - YOU WILL BE DISCONNECTED!"
     fi
     
