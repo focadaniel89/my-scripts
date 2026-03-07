@@ -620,3 +620,317 @@ export -f require_debian
 export -f check_min_bash_version
 export -f check_internet
 export -f get_ssh_service_name
+
+# --- INPUT PROMPTS ---
+
+# Prompt user for a valid domain name and assign to a variable
+# Args: $1 = variable name to set (default: DOMAIN)
+# Usage: prompt_domain N8N_DOMAIN
+prompt_domain() {
+    local var_name=${1:-DOMAIN}
+    while true; do
+        read -rp "Enter domain name: " _domain_val
+        _domain_val=$(echo "$_domain_val" | xargs)
+        if [ -z "$_domain_val" ]; then
+            log_error "Domain cannot be empty"
+            continue
+        fi
+        if [[ ! "$_domain_val" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$ ]]; then
+            log_error "Invalid domain format (e.g. app.example.com)"
+            continue
+        fi
+        log_success "Domain: $_domain_val"
+        printf -v "$var_name" '%s' "$_domain_val"
+        break
+    done
+}
+
+# Prompt user for a valid email address and assign to a variable
+# Args: $1 = variable name to set (default: EMAIL)
+# Usage: prompt_email N8N_EMAIL
+prompt_email() {
+    local var_name=${1:-EMAIL}
+    while true; do
+        read -rp "Enter email address: " _email_val
+        _email_val=$(echo "$_email_val" | xargs)
+        if [ -z "$_email_val" ]; then
+            log_error "Email cannot be empty"
+            continue
+        fi
+        if [[ ! "$_email_val" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+            log_error "Invalid email format (e.g. admin@example.com)"
+            continue
+        fi
+        log_success "Email: $_email_val"
+        printf -v "$var_name" '%s' "$_email_val"
+        break
+    done
+}
+
+# --- NGINX HELPERS ---
+
+# Write a standard reverse-proxy Nginx site config with WebSocket support
+# Args: $1=app_name, $2=domain, $3=upstream_port, $4=extra_location_block (optional)
+# Creates: /etc/nginx/sites-available/{app_name}.conf + symlink in sites-enabled
+write_nginx_proxy_config() {
+    local app_name=$1
+    local domain=$2
+    local upstream_port=$3
+    local extra_block=${4:-""}
+    local conf_path="/etc/nginx/sites-available/${app_name}.conf"
+
+    log_info "Writing Nginx reverse-proxy config for $domain → localhost:$upstream_port"
+
+    run_sudo tee "$conf_path" > /dev/null <<EOF
+# ${app_name} — Nginx Reverse Proxy
+# Domain: ${domain}
+# Generated: $(date '+%Y-%m-%d %H:%M:%S')
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${domain};
+
+    include snippets/security.conf;
+
+    access_log /var/log/nginx/${app_name}_access.log;
+    error_log  /var/log/nginx/${app_name}_error.log warn;
+
+    # Let's Encrypt ACME challenge
+    location ^~ /.well-known/acme-challenge/ {
+        default_type "text/plain";
+        root /var/www/html;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:${upstream_port};
+        proxy_http_version 1.1;
+
+        # WebSocket support
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # Standard proxy headers
+        proxy_set_header Host              \$host;
+        proxy_set_header X-Real-IP         \$remote_addr;
+        proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Host  \$host;
+        proxy_set_header X-Forwarded-Port  \$server_port;
+
+        proxy_connect_timeout 300s;
+        proxy_send_timeout    300s;
+        proxy_read_timeout    300s;
+
+        proxy_buffering         off;
+        proxy_request_buffering off;
+        proxy_hide_header X-Powered-By;
+    }
+
+    # Deny hidden files except ACME challenge
+    location ~ /\\.(?!well-known).* {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    ${extra_block}
+}
+EOF
+
+    run_sudo ln -sf "$conf_path" "/etc/nginx/sites-enabled/${app_name}.conf"
+    log_success "Nginx config written and enabled: $conf_path"
+}
+
+# Rewrite Nginx site config with SSL (for use after certificate is issued)
+# Args: $1=app_name, $2=domain, $3=upstream_port
+write_nginx_ssl_config() {
+    local app_name=$1
+    local domain=$2
+    local upstream_port=$3
+    local conf_path="/etc/nginx/sites-available/${app_name}.conf"
+
+    log_info "Rewriting Nginx config with SSL for $domain"
+
+    run_sudo tee "$conf_path" > /dev/null <<EOF
+# ${app_name} — Nginx Reverse Proxy with SSL
+# Domain: ${domain}
+# Generated: $(date '+%Y-%m-%d %H:%M:%S')
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${domain};
+
+    location ^~ /.well-known/acme-challenge/ {
+        default_type "text/plain";
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name ${domain};
+
+    ssl_certificate     /etc/letsencrypt/live/${domain}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${domain}/privkey.pem;
+
+    include snippets/ssl-params.conf;
+    include snippets/security.conf;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+
+    access_log /var/log/nginx/${app_name}_access.log;
+    error_log  /var/log/nginx/${app_name}_error.log warn;
+
+    location / {
+        proxy_pass http://127.0.0.1:${upstream_port};
+        proxy_http_version 1.1;
+
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host              \$host;
+        proxy_set_header X-Real-IP         \$remote_addr;
+        proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Host  \$host;
+        proxy_set_header X-Forwarded-Port  \$server_port;
+
+        proxy_connect_timeout 300s;
+        proxy_send_timeout    300s;
+        proxy_read_timeout    300s;
+
+        proxy_buffering         off;
+        proxy_request_buffering off;
+        proxy_hide_header X-Powered-By;
+    }
+
+    location ~ /\\.(?!well-known).* {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+EOF
+
+    run_sudo ln -sf "$conf_path" "/etc/nginx/sites-enabled/${app_name}.conf"
+    log_success "SSL Nginx config written: $conf_path"
+}
+
+# --- SSL CERTIFICATE SETUP ---
+
+# Request Let's Encrypt or self-signed SSL certificate, then rewrite nginx config with SSL
+# Args: $1=domain, $2=email, $3=app_name, $4=upstream_port
+# Requires: write_nginx_ssl_config() and SCRIPT_DIR to be set in calling script
+setup_ssl_certificate() {
+    local domain=$1
+    local email=$2
+    local app_name=$3
+    local upstream_port=$4
+    local cert_path="/etc/letsencrypt/live/${domain}"
+
+    log_step "SSL Certificate Setup for: $domain"
+    echo ""
+
+    # Already exists — skip
+    if run_sudo test -d "$cert_path" && run_sudo test -f "$cert_path/fullchain.pem"; then
+        log_success "SSL certificate already exists for $domain"
+        write_nginx_ssl_config "$app_name" "$domain" "$upstream_port"
+        run_sudo nginx -t && run_sudo systemctl reload nginx
+        return 0
+    fi
+
+    log_info "Choose SSL certificate type:"
+    echo "  1) Let's Encrypt (certbot) — Free, trusted, auto-renewable"
+    echo "  2) Self-signed              — Quick, no DNS required, Cloudflare compatible"
+    echo ""
+    read -rp "Enter choice [1-2]: " CERT_CHOICE
+    echo ""
+
+    case $CERT_CHOICE in
+        1)
+            log_info "Using Let's Encrypt (certbot)"
+
+            if ! command -v certbot &>/dev/null; then
+                log_warn "Certbot not installed, installing now..."
+                local certbot_installer="${SCRIPT_DIR}/apps/infrastructure/certbot/install.sh"
+                if [ -f "$certbot_installer" ]; then
+                    bash "$certbot_installer"
+                else
+                    log_error "Certbot installer not found: $certbot_installer"
+                    return 1
+                fi
+            fi
+
+            log_warn "Ensure DNS for $domain points to this server: $(hostname -I | awk '{print $1}')"
+            echo ""
+
+            local cert_log="/var/log/my-scripts/certbot_${app_name}_$(date +%Y%m%d_%H%M%S).log"
+            run_sudo mkdir -p "$(dirname "$cert_log")"
+
+            set +e
+            run_sudo certbot --nginx -d "$domain" \
+                --email "$email" \
+                --agree-tos --no-eff-email --redirect --non-interactive \
+                2>&1 | run_sudo tee "$cert_log"
+            local exit_code=${PIPESTATUS[0]}
+            set -e
+
+            if [ "$exit_code" -eq 0 ]; then
+                log_success "Let's Encrypt certificate issued for $domain"
+                audit_log "SSL_CONFIGURED" "$app_name" "Domain: $domain"
+            elif grep -q "too many certificates\|rate limit" "$cert_log" 2>/dev/null; then
+                log_warn "Let's Encrypt rate limit hit — falling back to self-signed"
+                _generate_self_signed "$domain" "$app_name"
+            else
+                log_error "certbot failed (exit $exit_code). Check: $cert_log"
+                return 1
+            fi
+            ;;
+        2)
+            log_info "Using self-signed certificate"
+            _generate_self_signed "$domain" "$app_name"
+            ;;
+        *)
+            log_error "Invalid choice"
+            return 1
+            ;;
+    esac
+
+    # Rewrite nginx config with SSL and reload
+    write_nginx_ssl_config "$app_name" "$domain" "$upstream_port"
+    if run_sudo nginx -t; then
+        run_sudo systemctl reload nginx
+        log_success "Nginx reloaded with SSL"
+    else
+        log_error "Nginx config invalid after SSL setup"
+        return 1
+    fi
+}
+
+# Internal helper: generate a self-signed certificate via tools script
+_generate_self_signed() {
+    local domain=$1
+    local app_name=$2
+    local gen_script="${SCRIPT_DIR}/tools/generate-self-signed-cert.sh"
+
+    if [ -f "$gen_script" ]; then
+        bash "$gen_script" "$domain"
+        log_success "Self-signed certificate created for $domain"
+        log_warn "Set Cloudflare SSL to 'Full' (not 'Full Strict') if using Cloudflare"
+        audit_log "SSL_SELF_SIGNED" "$app_name" "Domain: $domain"
+    else
+        log_error "Self-signed cert generator not found: $gen_script"
+        return 1
+    fi
+}
+
+export -f prompt_domain prompt_email
+export -f write_nginx_proxy_config write_nginx_ssl_config
+export -f setup_ssl_certificate _generate_self_signed
+

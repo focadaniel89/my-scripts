@@ -3,11 +3,18 @@
 
 set -euo pipefail
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${SCRIPT_DIR}/lib/utils.sh"
+source "${SCRIPT_DIR}/lib/secrets.sh"
+
+# Trap for unexpected errors
+SETUP_FAILED=false
+cleanup_on_error() {
+    if [ "$SETUP_FAILED" = true ]; then
+        log_error "Dashboard setup encountered an error."
+    fi
+}
+trap 'SETUP_FAILED=true; cleanup_on_error' ERR INT TERM
 
 # Determine the actual user's home directory
 # When running with sudo, use SUDO_USER; otherwise use current USER
@@ -27,18 +34,7 @@ NGINX_ENABLED="/etc/nginx/sites-enabled/dashboard"
 HTML_DIR="/var/www/html"
 HTPASSWD_FILE="${SECRETS_DIR}/.htpasswd"
 
-# Logging functions
-log_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
-}
 
-log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
 
 # Check if running as root
 check_root() {
@@ -79,17 +75,14 @@ check_dependencies() {
     log_info "Dependencies OK"
 }
 
-# Generate random password
-generate_password() {
-    openssl rand -base64 18 | tr -d "=+/" | cut -c1-20
-}
+
 
 # Create dashboard credentials
 create_credentials() {
     log_info "Creating dashboard credentials..."
     
     local username="admin"
-    local password=$(generate_password)
+    local password=$(generate_system_password)
     
     # Ensure secrets directory exists with correct ownership
     mkdir -p "$SECRETS_DIR"

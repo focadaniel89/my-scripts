@@ -169,14 +169,18 @@ preflight_check() {
     fi
     
     # Ask user to continue
-    echo ""
-    read -p "Continue with installation? (y/N): " -n 1 -r confirm
-    echo ""
-    
-    if [[ ! $confirm =~ ^[Yy]$ ]]; then
-        log_info "Installation cancelled by user"
-        audit_log "INSTALL_CANCELLED" "$app_name" "Pre-flight checks failed or user cancelled"
-        exit 0
+    if [[ "${FORCE_YES:-}" == "1" ]]; then
+        log_info "Auto-confirming preflight completion due to FORCE_YES=1"
+    else
+        echo ""
+        read -p "Continue with installation? (y/N): " -n 1 -r confirm
+        echo ""
+        
+        if [[ ! $confirm =~ ^[Yy]$ ]]; then
+            log_info "Installation cancelled by user"
+            audit_log "INSTALL_CANCELLED" "$app_name" "Pre-flight checks failed or user cancelled"
+            exit 0
+        fi
     fi
     
     echo ""

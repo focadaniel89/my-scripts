@@ -147,20 +147,7 @@ create_docker_network() {
     fi
 }
 
-# Create Docker network if it doesn't exist
-# Args: $1 = network_name
-create_docker_network() {
-    local network_name=$1
-    
-    if ! run_sudo docker network inspect "$network_name" &> /dev/null; then
-        log_info "Creating Docker network: $network_name"
-        run_sudo docker network create "$network_name"
-        return $?
-    else
-        log_info "Docker network already exists: $network_name"
-        return 0
-    fi
-}
+
 
 # Deploy application using docker-compose
 # Args: $1 = app_directory

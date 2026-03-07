@@ -12,6 +12,15 @@ source "${SCRIPT_DIR}/lib/utils.sh"
 
 SECRETS_DIR="${HOME}/.vps-secrets"
 
+# Trap for unexpected errors
+HEALTH_CHECK_FAILED=false
+cleanup_on_error() {
+    if [ "$HEALTH_CHECK_FAILED" = true ]; then
+        log_error "Health check encountered an error."
+    fi
+}
+trap 'HEALTH_CHECK_FAILED=true; cleanup_on_error' ERR INT TERM
+
 print_header() {
     echo "=============================================="
     echo "  VPS Health Check - $(date '+%Y-%m-%d %H:%M:%S')"

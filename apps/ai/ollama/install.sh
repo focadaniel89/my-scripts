@@ -72,7 +72,7 @@ echo ""
 # Setup directories
 log_step "Step 2: Setting up directories"
 create_app_directory "$DATA_DIR"
-create_app_directory "$DATA_DIR/models"
+create_app_directory "$DATA_DIR/data"
 
 log_success "Ollama directories created"
 echo ""
@@ -93,11 +93,20 @@ services:
     #   - "127.0.0.1:11434:11434"
 
     environment:
-      - OLLAMA_MODELS=/root/.ollama/models
       - OLLAMA_HOST=0.0.0.0:11434
 
     volumes:
-      - /opt/ai/ollama/models:/root/.ollama/models
+      - /opt/ai/ollama/data:/root/.ollama
+
+    # GPU Support (NVIDIA)
+    # Uncomment the 'deploy' section below if you have an NVIDIA GPU and installed nvidia-container-toolkit
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       generic_resources:
+    #         - discrete_resource_spec:
+    #             kind: "NVIDIA-GPU"
+    #             value: 0
 
     healthcheck:
       test: ["CMD-SHELL", "ollama list || exit 1"]
@@ -168,9 +177,9 @@ echo "  Not accessible from internet (security by design)"
 echo ""
 
 log_info "Storage Configuration:"
-echo "  Models directory: $DATA_DIR/models"
-echo "  Container path: /root/.ollama/models"
-echo "  Volume mount: Persistent storage"
+echo "  Data directory: $DATA_DIR/data"
+echo "  Container path: /root/.ollama"
+echo "  Volume mount: Persistent storage for models and metadata"
 echo ""
 
 log_info "Docker Management:"

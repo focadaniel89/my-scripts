@@ -52,9 +52,8 @@ if run_sudo docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; 
              log_success "Portainer started successfully"
              echo ""
              log_info "Access Information:"
-             SERVER_IP=$(hostname -I | awk '{print $1}')
-             echo "  HTTP:  http://${SERVER_IP}:9000"
-             echo "  HTTPS: https://${SERVER_IP}:9443"
+             echo "  HTTP:  http://127.0.0.1:9000 (Localhost only - Use SSH Tunnel)"
+             echo "  HTTPS: https://127.0.0.1:9443 (Localhost only - Use SSH Tunnel)"
              exit 0
         else
             log_info "Removing old container to reinstall..."

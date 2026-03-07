@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==============================================================================
-# XYOPS INSTALLATION (NATIVE)
-# Setup XyOps with Node.js and Systemd service
+# XYOPS INSTALLATION (DOCKER)
+# Setup XyOps using official Docker image (ghcr.io/pixlcore/xyops)
 # ==============================================================================
 
 set -euo pipefail
@@ -11,204 +11,187 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 source "${SCRIPT_DIR}/lib/utils.sh"
 source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/os-detect.sh"
+source "${SCRIPT_DIR}/lib/docker.sh"
+source "${SCRIPT_DIR}/lib/preflight.sh"
 
 APP_NAME="xyops"
-INSTALL_DIR="/opt/automation/xyops"
-REPO_URL="https://github.com/pixlcore/xyops.git"
-SERVICE_NAME="xyops"
+CONTAINER_NAME="xyops01"
+DATA_DIR="/opt/automation/xyops"
+NETWORK="vps_network"
 
 log_info "═══════════════════════════════════════════"
-log_info "  Installing XyOps (Native)"
+log_info "  Installing XyOps (Docker)"
 log_info "═══════════════════════════════════════════"
 echo ""
 
-# Detect OS
-log_step "Step 1: Detecting operating system"
-detect_os
-log_success "OS detected: $OS_TYPE"
-echo ""
+audit_log "INSTALL_START" "$APP_NAME"
+
+# Pre-flight checks
+preflight_check "$APP_NAME" 20 2 "5522"
 
 # Check dependencies
-log_step "Step 2: Checking dependencies"
-install_package git
-install_package curl
+log_step "Step 1: Checking dependencies"
 
-# Install Node.js if missing
-if ! command -v node &>/dev/null; then
-    log_info "Installing Node.js..."
-    curl -fsSL https://deb.nodesource.com/setup_20.x | run_sudo bash -
-    install_package nodejs
+# Docker check
+if ! check_docker; then
+    log_error "Docker is not installed"
+    log_info "Please install Docker first: Infrastructure > Docker Engine"
+    exit 1
 fi
-log_success "Node.js version: $(node -v)"
+log_success "✓ Docker is available"
 
-# Nginx check
+# Nginx check (REQUIRED for SSL)
 if ! command -v nginx &>/dev/null; then
-    log_warn "Nginx not installed. Installing..."
-    bash "${SCRIPT_DIR}/apps/infrastructure/nginx/install.sh"
+    log_error "Nginx is not installed"
+    log_info "Please run orchestrator or install Nginx first"
+    exit 1
+fi
+ensure_service_running nginx "Nginx"
+log_success "✓ Nginx is available"
+echo ""
+
+# Check for existing installation
+if run_sudo docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    log_success "✓ XyOps is already installed"
+    if confirm_action "Reinstall?"; then
+        log_info "Removing existing installation..."
+        run_sudo docker stop "$CONTAINER_NAME" 2>/dev/null || true
+        run_sudo docker rm "$CONTAINER_NAME" 2>/dev/null || true
+    else
+        log_info "Installation cancelled"
+        exit 0
+    fi
 fi
 echo ""
 
-# Create installation directory
+# Domain configuration
+log_step "Step 2: Domain configuration"
+echo ""
+log_info "XyOps requires a domain name for the reverse proxy"
+prompt_domain XYOPS_DOMAIN
+save_secret "$APP_NAME" "DOMAIN" "$XYOPS_DOMAIN"
+echo ""
+
+# Setup directories
 log_step "Step 3: Setting up directory"
-if [ ! -d "$INSTALL_DIR" ]; then
-    run_sudo mkdir -p "$INSTALL_DIR"
-    run_sudo chown -R $USER:$USER "$INSTALL_DIR"
-    log_success "Created directory: $INSTALL_DIR"
+create_app_directory "$DATA_DIR"
+create_app_directory "$DATA_DIR/data"
+create_app_directory "$DATA_DIR/conf"
+log_success "Created directory: $DATA_DIR"
+echo ""
+
+# Configure secret key
+log_step "Step 4: Configuring Secret Key"
+SECRET_KEY=$(get_secret "$APP_NAME" "XYOPS_SECRET_KEY" 2>/dev/null || echo "")
+if [ -z "$SECRET_KEY" ]; then
+    SECRET_KEY=$(openssl rand -hex 32)
+    save_secret "$APP_NAME" "XYOPS_SECRET_KEY" "$SECRET_KEY"
+    log_success "Generated new secret key"
 else
-    log_info "Directory exists: $INSTALL_DIR"
+    log_info "Using existing secret key"
 fi
 echo ""
 
-# Clone Repository
-log_step "Step 4: Cloning XyOps"
-if [ ! -d "${INSTALL_DIR}/.git" ]; then
-    git clone "$REPO_URL" "$INSTALL_DIR"
-    log_success "Cloned repository"
-else
-    log_info "Repository already cloned"
-    cd "$INSTALL_DIR"
-    git pull
-fi
-
-# Install NPM dependencies
-log_step "Step 5: Installing NPM dependencies"
-cd "$INSTALL_DIR"
-npm install
-log_success "Dependencies installed"
-echo ""
-
-# Configure XyOps
-log_step "Step 6: Configuring XyOps"
-if [ ! -f "conf/config.json" ]; then
-    # Create conf dir if missing (should exist from repo structure but just in case)
-    mkdir -p conf
-    
-    # Copy sample config
-    if [ -f "sample_conf/config.json" ]; then
-        cp sample_conf/config.json conf/config.json
-        log_success "Created config.json from sample"
-        
-        # Determine secret key
-        SECRET_KEY=$(get_secret "$APP_NAME" "XYOPS_SECRET_KEY")
-        if [ -z "$SECRET_KEY" ]; then
-             SECRET_KEY=$(openssl rand -hex 32)
-             save_secret "$APP_NAME" "XYOPS_SECRET_KEY" "$SECRET_KEY"
-        fi
-        
-        # Update secret key in config
-        sed -i "s|\"secret_key\": \"initial\"|\"secret_key\": \"$SECRET_KEY\"|" conf/config.json
-        log_info "Updated secret key in configuration"
-    else
-        log_error "Sample config not found!"
-        exit 1
-    fi
-fi
-echo ""
-
-# Create Systemd Service
-log_step "Step 7: Creating Systemd Service"
-SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-
-run_sudo tee "$SERVICE_FILE" > /dev/null <<EOF
-[Unit]
-Description=XyOps Workflow Automation
-After=network.target
-
-[Service]
-# Use forking because control.sh starts a daemon and exits
-Type=forking
-User=$USER
-WorkingDirectory=$INSTALL_DIR
-ExecStart=${INSTALL_DIR}/bin/control.sh start
-ExecStop=${INSTALL_DIR}/bin/control.sh stop
-PIDFile=${INSTALL_DIR}/logs/xyops.pid
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-run_sudo systemctl daemon-reload
-run_sudo systemctl enable "$SERVICE_NAME"
-
-# Note: XyOps control script might fork, using 'simple' with control.sh might be tricky.
-# Usually 'forking' is better if control.sh handles pid files properly.
-# However, for simplicity and ensuring we capture logs, running `node lib/main.js` might be better if control.sh is a wrapper.
-# Let's check package.json start script: "bin/control.sh start"
-# Let's try to start it.
-
-# Stop if running
-${INSTALL_DIR}/bin/control.sh stop || true
-
-# Start via systemd
-run_sudo systemctl start "$SERVICE_NAME"
-
-if systemctl is-active --quiet "$SERVICE_NAME"; then
-    log_success "Service started: $SERVICE_NAME"
-else
-    log_warn "Service failed to start via systemd, trying manual start to debug..."
-    ${INSTALL_DIR}/bin/control.sh start
-    if [ $? -eq 0 ]; then
-        log_success "Started manually"
-    else
-        log_error "Failed to start XyOps"
-        exit 1
-    fi
-fi
-echo ""
-
-# Configure Nginx
-log_step "Step 8: Configuring Nginx"
-
-DOMAIN=""
-if [ -f "${HOME}/.vps-secrets/.env_xyops" ]; then
-    DOMAIN=$(grep "DOMAIN=" "${HOME}/.vps-secrets/.env_xyops" | cut -d= -f2)
-fi
-
-if [ -z "$DOMAIN" ]; then
-    read -p "Enter domain for XyOps (e.g. ops.example.com): " DOMAIN
-    save_secret "xyops" "DOMAIN" "$DOMAIN"
-fi
-
-NGINX_CONF="/etc/nginx/sites-available/$APP_NAME.conf"
-
-run_sudo tee "$NGINX_CONF" > /dev/null <<EOF
-server {
-    listen 80;
-    server_name $DOMAIN;
-
-    access_log /var/log/nginx/${APP_NAME}_access.log;
-    error_log /var/log/nginx/${APP_NAME}_error.log;
-
-    location / {
-        proxy_pass http://127.0.0.1:5522;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-
-        # WebSocket support
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
+# Create configuration template
+run_sudo tee "$DATA_DIR/conf/config.json" > /dev/null <<EOF
+{
+  "secret_key": "$SECRET_KEY",
+  "log_dir": "/opt/xyops/data/logs",
+  "debug_level": 5
 }
 EOF
+run_sudo chown -R 1000:1000 "$DATA_DIR/conf" "$DATA_DIR/data"
 
-run_sudo ln -sf "$NGINX_CONF" "/etc/nginx/sites-enabled/$APP_NAME.conf"
+# Create Docker Compose file
+log_step "Step 5: Creating Docker Compose configuration"
+
+run_sudo tee "$DATA_DIR/docker-compose.yml" > /dev/null << 'EOF'
+services:
+  xyops01:
+    image: ghcr.io/pixlcore/xyops:latest
+    container_name: xyops01
+    hostname: xyops01
+    init: true
+    restart: unless-stopped
+    environment:
+      XYOPS_xysat_local: "true"
+      TZ: Europe/Bucharest
+    volumes:
+      - /opt/automation/xyops/data:/opt/xyops/data
+      - /opt/automation/xyops/conf:/opt/xyops/conf
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:5522:5522"
+      - "127.0.0.1:5523:5523"
+    networks:
+      - vps_network
+
+networks:
+  vps_network:
+    external: true
+EOF
+
+log_success "Docker Compose configuration created"
+echo ""
+
+# Deploy container
+log_step "Step 6: Deploying XyOps container"
+if ! deploy_with_compose "$DATA_DIR"; then
+    log_error "Failed to deploy XyOps"
+    exit 1
+fi
+echo ""
+
+# Wait for container to be ready
+log_step "Step 7: Waiting for XyOps to be ready"
+RETRIES=30
+COUNT=0
+while [ $COUNT -lt $RETRIES ]; do
+    if curl -s -f http://127.0.0.1:5522/api/health &>/dev/null || curl -s http://127.0.0.1:5522/ &>/dev/null; then
+        log_success "XyOps is reachable!"
+        break
+    fi
+    COUNT=$((COUNT + 1))
+    if [ $COUNT -eq $RETRIES ]; then
+        log_warn "XyOps took too long to become reachable on port 5522. Check logs."
+    fi
+    sleep 2
+done
+echo ""
+
+# Configure Nginx reverse proxy
+log_step "Step 8: Configuring Nginx reverse proxy"
+write_nginx_proxy_config "$APP_NAME" "$XYOPS_DOMAIN" 5522
 
 if run_sudo nginx -t; then
     run_sudo systemctl reload nginx
-    log_success "Nginx configured"
+    log_success "Nginx config valid and reloaded"
 else
-    log_error "Nginx configuration failed"
+    log_error "Nginx configuration test failed"
+    exit 1
 fi
 echo ""
 
 log_success "═══════════════════════════════════════════"
 log_success "  XyOps Installation Complete!"
 log_success "═══════════════════════════════════════════"
-echo "  URL: http://$DOMAIN"
-echo "  Path: $INSTALL_DIR"
+audit_log "INSTALL_COMPLETE" "$APP_NAME" "Domain: $XYOPS_DOMAIN"
 echo ""
+
+log_info "Access Information:"
+echo "  Domain: $XYOPS_DOMAIN"
+echo "  Web Interface: http://$XYOPS_DOMAIN (Configure SSL manually or via proxy tool)"
+echo "  Local Access: http://localhost:5522"
+echo ""
+
+log_info "Storage Configuration:"
+echo "  Data directory: $DATA_DIR/data"
+echo "  Config directory: $DATA_DIR/conf"
+echo ""
+
+log_info "Docker Management:"
+echo "  View logs:    docker logs $CONTAINER_NAME -f"
+echo "  Restart:      docker restart $CONTAINER_NAME"
+echo "  Stop/Start:   docker stop $CONTAINER_NAME / docker start $CONTAINER_NAME"
+echo ""
+exit 0

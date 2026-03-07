@@ -71,7 +71,7 @@ services:
     restart: unless-stopped
     
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     
     volumes:
       - $DATA_DIR/data:/app/data
@@ -134,8 +134,8 @@ echo ""
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 log_info "🌐 Access URLs:"
-echo "  Local:    http://localhost:3001"
-echo "  Network:  http://$SERVER_IP:3001"
+echo "  Local:    http://127.0.0.1:3001"
+echo "  Network:  No external access (Bind: 127.0.0.1) - Use Nginx Reverse Proxy"
 echo ""
 
 log_info "👤 First-time setup:"

@@ -343,22 +343,10 @@ echo ""
 
 # Configure firewall
 log_step "Step 9: Configuring Firewall"
-if command -v ufw &>/dev/null && run_sudo ufw status | grep -q "Status: active"; then
-    log_info "Opening HTTP (80) and HTTPS (443) ports in UFW..."
-    run_sudo ufw allow 80/tcp comment "HTTP"
-    run_sudo ufw allow 443/tcp comment "HTTPS"
-    log_success "Firewall rules added for HTTP/HTTPS"
-elif command -v firewall-cmd &>/dev/null && systemctl is-active --quiet firewalld; then
-    log_info "Opening HTTP and HTTPS ports in firewalld..."
-    run_sudo firewall-cmd --permanent --add-service=http
-    run_sudo firewall-cmd --permanent --add-service=https
-    run_sudo firewall-cmd --reload
-    log_success "Firewall rules added for HTTP/HTTPS"
-else
-    log_warn "No active firewall detected (ufw/firewalld)"
-    log_info "If using a firewall, manually allow ports 80 and 443"
-fi
+open_port 80  "HTTP"
+open_port 443 "HTTPS"
 echo ""
+
 
 # Display installation info
 log_success "═══════════════════════════════════════════"

@@ -58,6 +58,17 @@ generate_secure_password() {
     esac
 }
 
+# Generate a strong password for OS-level accounts (user/root)
+# Uses /dev/urandom with a shell-safe charset (no backticks, $, !, etc.)
+# Args: $1 = length (default: 20)
+# Returns: password string via stdout
+generate_system_password() {
+    local length=${1:-20}
+    # Charset: uppercase, lowercase, digits, safe specials (no $, `, \, ', ", !, which cause shell issues)
+    LC_ALL=C tr -dc 'A-Za-z0-9@#%^&*()-_=+[]{}|;:,.<>?' < /dev/urandom | head -c "$length"
+    echo ""  # ensure newline for command substitution
+}
+
 # Generate a secure database name (alphanumeric only)
 generate_db_name() {
     local prefix=${1:-"db"}

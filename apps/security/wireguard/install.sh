@@ -365,21 +365,8 @@ echo "  5. Connect and test: ping $WG_SERVER_IP"
 echo ""
 
 # Auto-configure firewall for WireGuard port
-if command -v ufw &>/dev/null && run_sudo ufw status | grep -q "^Status: active"; then
-    log_step "Configuring UFW firewall for WireGuard..."
-    run_sudo ufw allow "${WG_PORT}/udp" comment "WireGuard VPN" || true
-    log_success "✅ UFW rule added: ${WG_PORT}/udp"
-elif command -v firewall-cmd &>/dev/null; then
-    log_step "Configuring firewalld for WireGuard..."
-    run_sudo firewall-cmd --add-port="${WG_PORT}/udp" --permanent 2>/dev/null || true
-    run_sudo firewall-cmd --reload 2>/dev/null || true
-    log_success "✅ firewalld rule added: ${WG_PORT}/udp"
-else
-    log_warn "⚠ Could not auto-configure firewall. Manual step required:"
-    log_warn "   UFW:       sudo ufw allow ${WG_PORT}/udp"
-    log_warn "   firewalld: sudo firewall-cmd --add-port=${WG_PORT}/udp --permanent"
-    log_warn "   iptables:  sudo iptables -A INPUT -p udp --dport ${WG_PORT} -j ACCEPT"
-fi
+log_step "Step 10: Configuring Firewall"
+open_port "$WG_PORT" "WireGuard VPN" "udp"
 echo ""
 
 audit_log "INSTALL_COMPLETE" "$APP_NAME" "Interface: $WG_INTERFACE, Port: $WG_PORT/udp, Subnet: $WG_SUBNET"
