@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-03-07
+
+### Security & Hardening
+- **Native Applications**: Enforced secure-by-default localhost/`127.0.0.1` binding and strict authentication (`scram-sha-256`) for native databases (PostgreSQL, Redis) to prevent unintended external exposure.
+- **Docker Installations**: Confirmed isolation via custom `vps_network` and localized port binding.
+
+### Modularity & Code Quality
+- **Global Refactoring**: Extracted duplicated Nginx and SSL certificate setup logic from individual application scripts into centralized `lib/utils.sh` functions (`write_nginx_proxy_config`, `setup_ssl_certificate`, `prompt_domain`).
+- **Standardized Execution**: Added extended signal traps (`ERR`, `INT`, `TERM`) for graceful error handling and cleanup across scripts (e.g. `health-check.sh`, `setup-dashboard.sh`).
+
+### Automation
+- **Unattended Installs**: Re-audited all prompts (e.g. Grafana domain selection, final SSH restart confirmation) to respect the `FORCE_YES=1` environment variable for completely automated, non-interactive deployments.
+
 ## [2.0.0] — 2026-03-06
 
 ### Added — Orchestrator

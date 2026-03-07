@@ -99,9 +99,13 @@ fi
 # If running locally without domain, localhost is fine.
 # If remote access needed, ask for domain.
 GRAFANA_DOMAIN="localhost"
-read -p "Enter domain for Grafana (leave empty for localhost): " INPUT_DOMAIN
-if [ -n "$INPUT_DOMAIN" ]; then
-    GRAFANA_DOMAIN="$INPUT_DOMAIN"
+if [ "${FORCE_YES:-0}" = "1" ]; then
+    log_info "FORCE_YES enabled: using localhost domain for Grafana."
+else
+    read -p "Enter domain for Grafana (leave empty for localhost): " INPUT_DOMAIN
+    if [ -n "$INPUT_DOMAIN" ]; then
+        GRAFANA_DOMAIN="$INPUT_DOMAIN"
+    fi
 fi
 
 NGINX_CONF="/etc/nginx/sites-available/grafana-native.conf"

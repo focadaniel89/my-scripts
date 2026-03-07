@@ -77,12 +77,11 @@ log_info "Config Dir: $PG_CONF_DIR"
 backup_file "$PG_CONF_FILE"
 backup_file "$PG_HBA_FILE"
 
-# Set listen_addresses to '*' to allow connections from other containers/hosts if firewall permits
-# But strictly control via pg_hba.conf and UFW
+# Set listen_addresses to 'localhost' for security (secure by default)
 if grep -q "^#listen_addresses = 'localhost'" "$PG_CONF_FILE"; then
-    run_sudo sed -i "s/^#listen_addresses = 'localhost'/listen_addresses = '*'/" "$PG_CONF_FILE"
-elif grep -q "^listen_addresses = 'localhost'" "$PG_CONF_FILE"; then
-    run_sudo sed -i "s/^listen_addresses = 'localhost'/listen_addresses = '*'/" "$PG_CONF_FILE"
+    run_sudo sed -i "s/^#listen_addresses = 'localhost'/listen_addresses = 'localhost'/" "$PG_CONF_FILE"
+elif grep -q "^listen_addresses = '\*'" "$PG_CONF_FILE"; then
+    run_sudo sed -i "s/^listen_addresses = '\*'/listen_addresses = 'localhost'/" "$PG_CONF_FILE"
 fi
 
 # Performance Tuning (Basic 2026 Standards for automation workloads)
@@ -99,9 +98,9 @@ else
     echo "shared_buffers = ${SHARED_BUFFERS_MB}MB" | run_sudo tee -a "$PG_CONF_FILE"
 fi
 
-# Configure pg_hba.conf to allow password authentication
-# Allow host connections with md5/scram-sha-256
-echo "host    all             all             0.0.0.0/0               scram-sha-256" | run_sudo tee -a "$PG_HBA_FILE" > /dev/null
+# Configure pg_hba.conf to allow password authentication ONLY from localhost
+echo "host    all             all             127.0.0.1/32            scram-sha-256" | run_sudo tee -a "$PG_HBA_FILE" > /dev/null
+echo "host    all             all             ::1/128                 scram-sha-256" | run_sudo tee -a "$PG_HBA_FILE" > /dev/null
 
 log_success "Configuration updated"
 echo ""

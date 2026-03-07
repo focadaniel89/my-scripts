@@ -160,12 +160,11 @@ Available directly from the orchestrator menu (`[tools]` section):
 
 See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
-**Latest: v2.0.0 (March 2026)**
-- Orchestrator: loop menu, --help, startup preflight checks, tools section
-- Security: AppArmor, sudo hardening, ASLR, fail2ban SQLite persistence
-- Library: `require_debian()`, `check_internet()`, `get_ssh_service_name()`, `preflight_startup()`
-- Auditd: sudo/su escalation monitoring, cron, kernel module detection
-- Focus: standardized on Debian/Ubuntu (with RHEL advisory warnings)
+**Latest: v2.1.0 (March 2026)**
+- Security: Enforced strict localhost binding and `scram-sha-256` auth for native databases (PostgreSQL, Redis).
+- Modularity: Centralized Nginx/SSL configuration logic into `lib/utils.sh` to adhere to DRY principles.
+- Automation: Validated full support for `FORCE_YES=1` unattended installations across all prompts.
+- Hardening: AppArmor, sudo hardening, ASLR, fail2ban SQLite persistence.
 
 ---
 
