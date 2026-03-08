@@ -146,6 +146,7 @@ Available directly from the orchestrator menu (`[tools]` section):
 - **Uptime Kuma** — Uptime monitoring & alerting
 
 ### 🔐 Security
+- **HashiCorp Vault** — Secure secret management and CLI tools
 - **WireGuard** — Modern VPN tunnel
 - **Fail2Ban** — Intrusion prevention (also configured in VPS setup)
 - **Security Audit** — Local vulnerability scanner

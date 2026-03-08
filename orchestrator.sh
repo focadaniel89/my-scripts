@@ -111,6 +111,9 @@ is_app_installed() {
         certbot)
             command -v certbot &>/dev/null && return 0 || return 1
             ;;
+        vault)
+            command -v vault &>/dev/null && return 0 || return 1
+            ;;
         *)
             command -v docker &>/dev/null && systemctl is-active --quiet docker 2>/dev/null || return 1
             run_sudo docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${app_name}$" || return 1
