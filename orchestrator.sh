@@ -18,6 +18,8 @@ source "${SCRIPT_DIR}/lib/docker.sh"
 source "${SCRIPT_DIR}/lib/preflight.sh"
 
 APPS_CONF="${SCRIPT_DIR}/config/apps.conf"
+WORKFLOWS_CONF="${SCRIPT_DIR}/config/workflows.conf"
+TOOLS_CONF="${SCRIPT_DIR}/config/tools.conf"
 
 # --- Help ---
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
@@ -40,19 +42,32 @@ fi
 # ──────────────────────────────────────────────────────────────
 # CONFIG READER
 # ──────────────────────────────────────────────────────────────
-get_app_config() {
-    local app_name="$1"
-    local key="$2"
+get_config() {
+    local file="$1"
+    local item_name="$2"
+    local key="$3"
 
-    awk -v app="$app_name" -v key="$key" '
+    awk -v item="$item_name" -v key="$key" '
         /^\[/ { section=$0; gsub(/[\[\]]/, "", section) }
-        section == app && $0 ~ "^"key"=" {
+        section == item && $0 ~ "^"key"=" {
             split($0, a, "=");
             gsub(/^[ \t]+|[ \t]+$/, "", a[2]);
             print a[2];
             exit
         }
-    ' "$APPS_CONF"
+    ' "$file"
+}
+
+get_app_config() {
+    get_config "$APPS_CONF" "$1" "$2"
+}
+
+get_workflow_config() {
+    get_config "$WORKFLOWS_CONF" "$1" "$2"
+}
+
+get_tool_config() {
+    get_config "$TOOLS_CONF" "$1" "$2"
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -259,10 +274,13 @@ show_menu() {
         echo "  ┌─ [workflows]"
         for wf in workflows/*.sh; do
             if [ -f "$wf" ]; then
-                local wf_name
+                local wf_name display_name
                 wf_name=$(basename "$wf" .sh)
+                display_name=$(get_workflow_config "$wf_name" "display_name" 2>/dev/null || echo "")
+                [ -z "$display_name" ] && display_name="Run: ${wf_name}"
+                
                 apps_list+=("workflow:${wf}")
-                printf "  │  %2d) %-38s\n" "$counter" "Run: ${wf_name}"
+                printf "  │  %2d) %-38s\n" "$counter" "${display_name}"
                 ((counter++))
             fi
         done
@@ -271,19 +289,23 @@ show_menu() {
     fi
 
     # ── TOOLS ─────────────────────────────────────────────────
-    echo "  ┌─ [tools]"
-    local tool_scripts=("health-check.sh" "update.sh" "backup-databases.sh" "backup-credentials.sh" "generate-self-signed-cert.sh" "setup-dashboard.sh")
-    local tool_labels=("Health Check" "Update All Containers" "Backup Databases" "Backup Credentials" "Generate Self-Signed Cert" "Setup Dashboard")
-    for i in "${!tool_scripts[@]}"; do
-        local tool_path="tools/${tool_scripts[$i]}"
-        if [ -f "${SCRIPT_DIR}/${tool_path}" ]; then
-            apps_list+=("tool:${tool_path}")
-            printf "  │  %2d) %-38s\n" "$counter" "${tool_labels[$i]}"
-            ((counter++))
-        fi
-    done
-    echo "  └───────────────────────────────────────────"
-    echo ""
+    if ls tools/*.sh 1>/dev/null 2>&1; then
+        echo "  ┌─ [tools]"
+        for tool in tools/*.sh; do
+            if [ -f "$tool" ]; then
+                local tool_name display_name
+                tool_name=$(basename "$tool" .sh)
+                display_name=$(get_tool_config "$tool_name" "display_name" 2>/dev/null || echo "")
+                [ -z "$display_name" ] && display_name="${tool_name}"
+                
+                apps_list+=("tool:${tool}")
+                printf "  │  %2d) %-38s\n" "$counter" "${display_name}"
+                ((counter++))
+            fi
+        done
+        echo "  └───────────────────────────────────────────"
+        echo ""
+    fi
 
     echo "  ─────────────────────────────────────────────"
     echo "   0) Exit"
@@ -373,6 +395,9 @@ run_selection() {
         else
             log_warn "Installation not confirmed — you can re-run: $script_path"
         fi
+        
+        echo ""
+        read -rp "Press Enter to return to menu..."
 
     # ── WORKFLOW ─────────────────────────────────────────────
     elif [ "$sel_type" = "workflow" ]; then

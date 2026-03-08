@@ -49,12 +49,10 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 print_banner() {
     clear
     cat << 'EOF'
-╔═══════════════════════════════════════════════════════════════╗
-║                                                               ║
-║             VPS INITIAL SETUP & HARDENING                     ║
-║            Enterprise Security Configuration                 ║
-║                                                               ║
-╚═══════════════════════════════════════════════════════════════╝
+╔═══════════════════════════════════════════════════════════╗
+║           VPS ORCHESTRATOR                                ║
+║           Initial Setup & Hardening                       ║
+╚═══════════════════════════════════════════════════════════╝
 EOF
     echo ""
     log_info "Detected OS: $(get_os_info)"
@@ -277,14 +275,15 @@ create_admin_user() {
     run_sudo chmod 600 "$USER_HOME/.ssh/authorized_keys"
     run_sudo chown -R "$NEW_USER:$NEW_USER" "$USER_HOME/.ssh"
     
-    # Move repository if exists
+    # Move repository if it's not already in the new user's home
     REPO_MOVED=false
-    if [ -d "/root/my-scripts" ]; then
-        log_info "Moving repository to user home..."
-        run_sudo mv /root/my-scripts "$USER_HOME/"
-        run_sudo chown -R "$NEW_USER:$NEW_USER" "$USER_HOME/my-scripts"
+    REPO_BASENAME=$(basename "$SCRIPT_DIR")
+    if [[ "$SCRIPT_DIR" != "$USER_HOME/$REPO_BASENAME" ]]; then
+        log_info "Moving repository to user home from $SCRIPT_DIR..."
+        run_sudo mv "$SCRIPT_DIR" "$USER_HOME/$REPO_BASENAME"
+        run_sudo chown -R "$NEW_USER:$NEW_USER" "$USER_HOME/$REPO_BASENAME"
         REPO_MOVED=true
-        log_success "Repository moved to $USER_HOME/my-scripts"
+        log_success "Repository moved to $USER_HOME/$REPO_BASENAME"
     fi
     
     # Corectarea drepturilor asupra folderului Home
@@ -789,9 +788,8 @@ EOF
     echo -e "${YELLOW}  Access:     ${NC}Run 'su -' from $NEW_USER (SSH root login is DISABLED)"
     unset GENERATED_USER_PASSWORD GENERATED_ROOT_PASSWORD  # clear from memory after display
     echo ""
-    
     if [ "$REPO_MOVED" = true ]; then
-        log_info "Repository moved to: /home/$NEW_USER/my-scripts"
+        log_info "Repository moved to: /home/$NEW_USER/$REPO_BASENAME"
     fi
     
     echo ""
