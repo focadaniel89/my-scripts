@@ -253,9 +253,19 @@ prepare_proxmox_repo() {
     run_sudo wget -q https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg -O /etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg
     
     # Remove enterprise repo if it exists (prevents 401 Unauthorized errors on free tier)
-    if [ -f "/etc/apt/sources.list.d/pve-enterprise.list" ]; then
-        log_info "Removing default Proxmox Enterprise repository..."
-        run_sudo rm -f /etc/apt/sources.list.d/pve-enterprise.list
+    log_info "Ensuring Proxmox Enterprise repository is removed..."
+    run_sudo rm -f /etc/apt/sources.list.d/pve-enterprise.list
+    run_sudo rm -f /etc/apt/sources.list.d/pve-enterprise.sources
+    run_sudo rm -f /etc/apt/sources.list.d/ceph.list
+    run_sudo rm -f /etc/apt/sources.list.d/ceph.sources
+    
+    # Also check if it was added to the main sources list or debian.sources
+    local APT_SOURCES_FILE="/etc/apt/sources.list"
+    if [ -f "/etc/apt/sources.list.d/debian.sources" ]; then
+        run_sudo sed -i '/enterprise.proxmox.com/d' /etc/apt/sources.list.d/debian.sources
+    fi
+    if [ -f "$APT_SOURCES_FILE" ]; then
+        run_sudo sed -i '/enterprise.proxmox.com/d' "$APT_SOURCES_FILE"
     fi
 
     log_info "Adding Proxmox 9 No-Subscription Repository (DEB822 format)..."
