@@ -123,8 +123,21 @@ gather_information() {
     GENERATED_USER_PASSWORD=$(generate_system_password 20)
     log_info "Strong password auto-generated for user '$NEW_USER'."
     
-    # SSH port (Hardcoded to 22 to leave it standard, suitable for Cloudflare Tunnels)
-    SSH_PORT=22
+    # SSH port
+    while true; do
+        echo -ne "${YELLOW}Enter new SSH port [Default port 22]:${NC} "
+        read -r SSH_PORT
+        SSH_PORT=${SSH_PORT:-22}
+        
+        if [[ ! "$SSH_PORT" =~ ^[0-9]+$ ]] || [ "$SSH_PORT" -lt 1024 ] || [ "$SSH_PORT" -gt 65535 ]; then
+            if [ "$SSH_PORT" -ne 22 ]; then
+                log_error "Port must be 22, or between 1024 and 65535"
+                continue
+            fi
+        fi
+        
+        break
+    done
     
     echo ""
     log_info "Configuration Summary:"
