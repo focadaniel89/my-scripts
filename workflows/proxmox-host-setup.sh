@@ -198,7 +198,21 @@ system_update() {
     
     # Add non-free-firmware to Debian 13 sources for Microcode
     log_info "Ensuring non-free and non-free-firmware are enabled..."
-    run_sudo sed -i -r 's/^(deb( src)? .* (trixie|trixie-updates|trixie-security) .*)(main) *$/\1\4 contrib non-free non-free-firmware/' /etc/apt/sources.list
+    
+    # Debian 13 often uses DEB822 format in /etc/apt/sources.list.d/debian.sources
+    local APT_SOURCES_FILE="/etc/apt/sources.list"
+    if [ -f "/etc/apt/sources.list.d/debian.sources" ]; then
+        APT_SOURCES_FILE="/etc/apt/sources.list.d/debian.sources"
+        # For DEB822 format, append to the Components line if not already there
+        if ! grep -q "non-free-firmware" "$APT_SOURCES_FILE"; then
+            run_sudo sed -i -r 's/^(Components:.*)/\1 contrib non-free non-free-firmware/' "$APT_SOURCES_FILE"
+        fi
+    elif [ -f "$APT_SOURCES_FILE" ]; then
+        # Traditional format
+        run_sudo sed -i -r 's/^(deb( src)? .* (trixie|trixie-updates|trixie-security) .*)(main) *$/\1\4 contrib non-free non-free-firmware/' "$APT_SOURCES_FILE"
+    else
+        log_warn "Could not find standard APT sources file. Skipping non-free-firmware injection."
+    fi
     
     log_info "Updating package index..."
     pkg_update
