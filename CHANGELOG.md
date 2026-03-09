@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] — 2026-03-09
+
+### Changed
+- **Proxmox Workflow**: Refactored `proxmox-host-setup.sh` to include intelligent detection for pre-existing Proxmox installations.
+  - Automatically skips hostname configuration if it matches, preventing cluster disruption.
+  - Skips GPG key and `.sources` repository injection if already present.
+  - Hardcodes SSH port to standard `22` for better compatibility with Cloudflare Tunnels out of the box.
+  - Sets `PermitRootLogin` to `prohibit-password` ensuring root key access remains available for Proxmox clustering/maintenance.
+  - Aggressively removes both `.list` and DEB822 `.sources` variants of the `pve-enterprise` and `ceph` repositories to prevent persistent 401 Unauthorized errors on the free tier.
+
 ## [2.2.0] — 2026-03-08
 
 ### Added

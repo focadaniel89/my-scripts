@@ -89,16 +89,16 @@ my-scripts/
 
 ### 2. Proxmox Host Hardening (`workflows/proxmox-host-setup.sh`)
 
-A specialized 8-step process tailored for Debian 13 (Trixie) before installing Proxmox VE:
+A specialized 8-step process tailored for Debian 13 (Trixie) before or after installing Proxmox VE. The script features **Intelligent Detection** to safely adapt to pre-existing Proxmox cluster environments:
 
 | Step | What it does |
 |:-----|:-------------|
-| 1 | Hostname & FQDN Configuration (updates `/etc/hosts` & `/etc/hostname`) |
-| 2 | System update & enabling `non-free-firmware` sources |
+| 1 | Hostname & FQDN Configuration (skips if already correct to prevent cluster issues) |
+| 2 | System update & enabling `non-free-firmware` sources, aggressively removing `pve-enterprise` repos |
 | 3 | Essential tools & CPU Microcode installation (`amd64` or `intel`) |
-| 4 | Setting up Proxmox 9 No-Subscription Repository (DEB822) & GPG key |
+| 4 | Setting up Proxmox 9 No-Subscription Repository (DEB822) & GPG key (skips if exists) |
 | 5 | Admin user creation |
-| 6 | SSH Hardening (custom port, key-only, no root login) |
+| 6 | SSH Hardening (standard port 22 for Cloudflare Tunnel compatibility, key-only, `PermitRootLogin prohibit-password`) |
 | 7 | Fail2Ban (restricted strictly to SSH jail to avoid GUI lockouts) |
 | 8 | Audit logging |
 *(Excludes UFW/Firewalld and auto-upgrades to prevent Proxmox network conflicts and unexpected kernel crashes)*

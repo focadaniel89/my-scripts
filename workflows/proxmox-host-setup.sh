@@ -123,19 +123,8 @@ gather_information() {
     GENERATED_USER_PASSWORD=$(generate_system_password 20)
     log_info "Strong password auto-generated for user '$NEW_USER'."
     
-    # SSH port
-    while true; do
-        echo -ne "${YELLOW}Enter new SSH port [Default port 22]:${NC} "
-        read -r SSH_PORT
-        SSH_PORT=${SSH_PORT:-22}
-        
-        if [[ ! "$SSH_PORT" =~ ^[0-9]+$ ]] || [ "$SSH_PORT" -lt 1024 ] || [ "$SSH_PORT" -gt 65535 ]; then
-            log_error "Port must be between 1024 and 65535"
-            continue
-        fi
-        
-        break
-    done
+    # SSH port (Hardcoded to 22 to leave it standard, suitable for Cloudflare Tunnels)
+    SSH_PORT=22
     
     echo ""
     log_info "Configuration Summary:"
@@ -159,8 +148,15 @@ gather_information() {
 configure_hostname_fqdn() {
     log_step "Step 1: Network Hostname & FQDN"
     
-    # Set the hostname
-    run_sudo hostnamectl set-hostname "$PVE_HOSTNAME"
+    local CURRENT_HOSTNAME=$(hostname)
+    
+    if [ "$CURRENT_HOSTNAME" = "$PVE_HOSTNAME" ]; then
+        log_info "Hostname is already set to $PVE_HOSTNAME. Skipping hostname modification."
+    else
+        # Set the hostname
+        run_sudo hostnamectl set-hostname "$PVE_HOSTNAME"
+        log_info "Hostname changed to $PVE_HOSTNAME."
+    fi
     
     # Update /etc/hosts with public IP
     local PUBLIC_IP
@@ -245,12 +241,15 @@ install_system_tools() {
     log_success "System tools and microcode installed"
 }
 
-# Prepare Proxmox 9 Repositories
 prepare_proxmox_repo() {
     log_step "Step 4: Proxmox 9 Repository Setup (Trixie)"
 
-    log_info "Downloading Proxmox Release GPG Key..."
-    run_sudo wget -q https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg -O /etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg
+    if [ -f "/etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg" ]; then
+        log_info "Proxmox Release GPG Key already exists. Skipping download."
+    else
+        log_info "Downloading Proxmox Release GPG Key..."
+        run_sudo wget -q https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg -O /etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg
+    fi
     
     # Remove enterprise repo if it exists (prevents 401 Unauthorized errors on free tier)
     log_info "Ensuring Proxmox Enterprise repository is removed..."
@@ -268,16 +267,19 @@ prepare_proxmox_repo() {
         run_sudo sed -i '/enterprise.proxmox.com/d' "$APT_SOURCES_FILE"
     fi
 
-    log_info "Adding Proxmox 9 No-Subscription Repository (DEB822 format)..."
-    run_sudo bash -c "cat > /etc/apt/sources.list.d/proxmox.sources" <<'EOF'
+    if [ -f "/etc/apt/sources.list.d/proxmox.sources" ]; then
+        log_info "Proxmox No-Subscription repository already configured. Skipping."
+    else
+        log_info "Adding Proxmox 9 No-Subscription Repository (DEB822 format)..."
+        run_sudo bash -c "cat > /etc/apt/sources.list.d/proxmox.sources" <<'EOF'
 Types: deb
 URIs: http://download.proxmox.com/debian/pve
 Suites: trixie
 Components: pve-no-subscription
 Signed-By: /etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg
 EOF
-    
-    log_success "Proxmox repository configured."
+        log_success "Proxmox repository configured."
+    fi
 }
 
 # Create admin user
@@ -365,7 +367,7 @@ AddressFamily inet
 Protocol 2
 
 # Authentication
-PermitRootLogin no
+PermitRootLogin prohibit-password
 PubkeyAuthentication yes
 PasswordAuthentication no
 PermitEmptyPasswords no
@@ -521,17 +523,11 @@ main() {
     unset GENERATED_USER_PASSWORD GENERATED_ROOT_PASSWORD
     echo ""
     log_warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    log_warn "  NEXT STEPS FOR PROXMOX INSTALLATION"
+    log_warn "  SETUP COMPLETE - READY FOR CLOUDFLARE"
     log_warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "  1. The new DEB822 proxmox.sources and GPG key are added."
-    echo "  2. You must now manually install the kernel/packages."
-    echo ""
-    echo -e "  Run the following commands as root:"
-    echo -e "${GREEN}  apt update${NC}"
-    echo -e "${GREEN}  apt install proxmox-ve postfix open-iscsi chrony${NC}"
-    echo ""
-    echo "  Note: The SSH service needs to restart for the new port ($SSH_PORT) to take effect."
-    echo "  Restart mapping by exiting the console or running: systemctl restart ssh"
+    echo "  1. SSH connection mapping has been restarted using standard port 22."
+    echo "  2. Use your existing toolset to connect the Cloudflare Tunnel."
+    echo "  3. Log in to the Proxmox UI to manage your hardware."
     echo ""
 }
 
