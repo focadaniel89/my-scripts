@@ -59,7 +59,8 @@ my-scripts/
 │   ├── generate-self-signed-cert.sh
 │   └── setup-dashboard.sh
 └── workflows/                   # Complex multi-step flows
-    └── vps-initial-setup.sh     # Full server hardening (13 steps)
+    ├── vps-initial-setup.sh     # Full server hardening (13 steps)
+    └── proxmox-host-setup.sh    # Dedicated Proxmox VE Host hardening & setup
 ```
 
 ---
@@ -85,6 +86,22 @@ my-scripts/
 | 11 | Final verification (all services + AppArmor status) |
 | 12 | Sudo hardening — 5-min timeout + full command log |
 | 13 | AppArmor — installed, enabled, all profiles enforced |
+
+### 2. Proxmox Host Hardening (`workflows/proxmox-host-setup.sh`)
+
+A specialized 8-step process tailored for Debian 13 (Trixie) before installing Proxmox VE:
+
+| Step | What it does |
+|:-----|:-------------|
+| 1 | Hostname & FQDN Configuration (updates `/etc/hosts` & `/etc/hostname`) |
+| 2 | System update & enabling `non-free-firmware` sources |
+| 3 | Essential tools & CPU Microcode installation (`amd64` or `intel`) |
+| 4 | Setting up Proxmox 9 No-Subscription Repository (DEB822) & GPG key |
+| 5 | Admin user creation |
+| 6 | SSH Hardening (custom port, key-only, no root login) |
+| 7 | Fail2Ban (restricted strictly to SSH jail to avoid GUI lockouts) |
+| 8 | Audit logging |
+*(Excludes UFW/Firewalld and auto-upgrades to prevent Proxmox network conflicts and unexpected kernel crashes)*
 
 ### 2. Network Isolation
 
