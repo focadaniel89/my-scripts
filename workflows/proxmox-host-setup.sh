@@ -479,9 +479,9 @@ main() {
     echo ""
     
     configure_hostname_fqdn
+    prepare_proxmox_repo
     system_update
     install_system_tools
-    prepare_proxmox_repo
     create_admin_user
     configure_ssh
     configure_fail2ban
