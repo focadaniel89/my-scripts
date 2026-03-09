@@ -252,6 +252,12 @@ prepare_proxmox_repo() {
     log_info "Downloading Proxmox Release GPG Key..."
     run_sudo wget -q https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg -O /etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg
     
+    # Remove enterprise repo if it exists (prevents 401 Unauthorized errors on free tier)
+    if [ -f "/etc/apt/sources.list.d/pve-enterprise.list" ]; then
+        log_info "Removing default Proxmox Enterprise repository..."
+        run_sudo rm -f /etc/apt/sources.list.d/pve-enterprise.list
+    fi
+
     log_info "Adding Proxmox 9 No-Subscription Repository (DEB822 format)..."
     run_sudo bash -c "cat > /etc/apt/sources.list.d/proxmox.sources" <<'EOF'
 Types: deb
