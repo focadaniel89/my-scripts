@@ -403,7 +403,7 @@ PermitUserEnvironment no
 AllowTcpForwarding no
 AllowAgentForwarding no
 GatewayPorts no
-MaxAuthTries 3
+MaxAuthTries 10
 MaxSessions 2
 
 # Timeouts

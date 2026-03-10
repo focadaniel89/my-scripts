@@ -395,13 +395,14 @@ PermitUserEnvironment no
 AllowTcpForwarding no
 AllowAgentForwarding no
 GatewayPorts no
-MaxAuthTries 3
+# Hardened Security
+MaxAuthTries 10
 MaxSessions 2
 
 # Timeouts
 ClientAliveInterval 300
 ClientAliveCountMax 2
-LoginGraceTime 60
+LoginGraceTime 30
 
 # Allowed users
 AllowUsers $NEW_USER
