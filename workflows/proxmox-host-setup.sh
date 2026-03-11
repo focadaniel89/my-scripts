@@ -75,7 +75,7 @@ gather_information() {
     
     # Hostname & FQDN
     while true; do
-        echo -ne "${YELLOW}Enter base hostname for Proxmox (e.g., proxmox-ryzen7):${NC} "
+        echo -ne "${YELLOW}Enter base hostname for Proxmox (e.g., proxmox):${NC} "
         read -r PVE_HOSTNAME
         
         if [ -z "$PVE_HOSTNAME" ]; then
@@ -83,9 +83,9 @@ gather_information() {
             continue
         fi
         
-        # Validare bazica RFC 1123 pentru hostname
-        if [[ ! "$PVE_HOSTNAME" =~ ^[a-zA-Z0-9-]{1,63}$ ]]; then
-            log_error "Invalid hostname format (use alphanumeric and hyphens only)"
+        # Validare bazica pentru hostname/FQDN
+        if [[ ! "$PVE_HOSTNAME" =~ ^[a-zA-Z0-9.-]{1,253}$ ]]; then
+            log_error "Invalid hostname format (use alphanumeric, hyphens, and dots only)"
             continue
         fi
         break
